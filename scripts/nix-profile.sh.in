@@ -69,7 +69,10 @@ if [ -n "$HOME" ] && [ -n "$USER" ]; then
         export NIX_SSL_CERT_FILE="$HOME/.nix-profile/etc/ca-bundle.crt"
     fi
 
-    if [ -n "${MANPATH}" ]; then
+    # Set MANPATH only if not already set, because on some "man" implementations
+    # the default value on $MANPATH is derived from $PATH. So if you set $MANPATH
+    # unconditionally, you lose the default locations.
+    if [ -n "$MANPATH" ]; then
         export MANPATH="$HOME/.nix-profile/share/man:$MANPATH"
     fi
 
