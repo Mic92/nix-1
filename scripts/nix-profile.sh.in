@@ -80,5 +80,5 @@ if [ -n "$HOME" ] && [ -n "$USER" ]; then
     fi
 
     export PATH="$NIX_LINK/bin:$__savedpath"
-    unset __savedpath NIX_LINK NIX_USER_PROFILE_DIR NIX_PROFILES
+    unset __savedpath NIX_LINK
 fi
