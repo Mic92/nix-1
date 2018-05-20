@@ -2,7 +2,7 @@ if [ -n "$HOME" ] && [ -n "$USER" ]; then
     __savedpath="$PATH"
     export PATH=@coreutils@
 
-    # This part should be kept in sync with nixpkgs:nixos/modules/config/shells-environment.nix
+    # BEGIN of parts to be kept in sync with nixpkgs:nixos/modules/config/shells-environment.nix
     export NIX_USER_PROFILE_DIR=@localstatedir@/nix/profiles/per-user/$USER
     export NIX_PROFILES="@localstatedir@/nix/profiles/default $NIX_USER_PROFILE_DIR"
 
@@ -47,6 +47,7 @@ if [ -n "$HOME" ] && [ -n "$USER" ]; then
             fi
         fi
     fi
+    # END of parts to be kept in sync with nixpkgs:nixos/modules/config/shells-environment.nix
 
     # Append ~/.nix-defexpr/channels/nixpkgs to $NIX_PATH so that
     # <nixpkgs> paths work when the user has fetched the Nixpkgs
