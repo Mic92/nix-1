@@ -3,9 +3,6 @@ if [ -n "$HOME" ] && [ -n "$USER" ]; then
     export PATH=@coreutils@
 
     # This part should be kept in sync with nixpkgs:nixos/modules/config/shells-environment.nix
-
-    NIX_LINK=$HOME/.nix-profile
-
     export NIX_USER_PROFILE_DIR=@localstatedir@/nix/profiles/per-user/$USER
     export NIX_PROFILES="@localstatedir@/nix/profiles/default $NIX_USER_PROFILE_DIR"
 
@@ -16,15 +13,15 @@ if [ -n "$HOME" ] && [ -n "$USER" ]; then
     fi
 
     if [ -w "$HOME" ]; then
-        if ! [ -L "$NIX_LINK" ]; then
-            echo "Nix: creating $NIX_LINK" >&2
+        if ! [ -L "$HOME/.nix-profile" ]; then
+            echo "Nix: creating $HOME/.nix-profile" >&2
             if [ "$USER" != root ]; then
-                if ! ln -s "$NIX_USER_PROFILE_DIR"/profile "$NIX_LINK"; then
-                    echo "Nix: WARNING: could not create $NIX_LINK -> $NIX_USER_PROFILE_DIR/profile" >&2
+                if ! ln -s "$NIX_USER_PROFILE_DIR"/profile "$HOME/.nix-profile"; then
+                    echo "Nix: WARNING: could not create $HOME/.nix-profile -> $NIX_USER_PROFILE_DIR/profile" >&2
                 fi
             else
                 # Root installs in the system-wide profile by default.
-                ln -s @localstatedir@/nix/profiles/default "$NIX_LINK"
+                ln -s @localstatedir@/nix/profiles/default "$HOME/.nix-profile"
             fi
         fi
 
@@ -65,16 +62,16 @@ if [ -n "$HOME" ] && [ -n "$USER" ]; then
         export NIX_SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt
     elif [ -e /etc/pki/tls/certs/ca-bundle.crt ]; then # Fedora, CentOS
         export NIX_SSL_CERT_FILE=/etc/pki/tls/certs/ca-bundle.crt
-    elif [ -e "$NIX_LINK/etc/ssl/certs/ca-bundle.crt" ]; then # fall back to cacert in Nix profile
-        export NIX_SSL_CERT_FILE="$NIX_LINK/etc/ssl/certs/ca-bundle.crt"
-    elif [ -e "$NIX_LINK/etc/ca-bundle.crt" ]; then # old cacert in Nix profile
-        export NIX_SSL_CERT_FILE="$NIX_LINK/etc/ca-bundle.crt"
+    elif [ -e "$HOME/.nix-profile/etc/ssl/certs/ca-bundle.crt" ]; then # fall back to cacert in Nix profile
+        export NIX_SSL_CERT_FILE="$HOME/.nix-profile/etc/ssl/certs/ca-bundle.crt"
+    elif [ -e "$HOME/.nix-profile/etc/ca-bundle.crt" ]; then # old cacert in Nix profile
+        export NIX_SSL_CERT_FILE="$HOME/.nix-profile/etc/ca-bundle.crt"
     fi
 
     if [ -n "${MANPATH}" ]; then
-        export MANPATH="$NIX_LINK/share/man:$MANPATH"
+        export MANPATH="$HOME/.nix-profile/share/man:$MANPATH"
     fi
 
-    export PATH="$NIX_LINK/bin:$__savedpath"
-    unset __savedpath NIX_LINK
+    export PATH="$HOME/.nix-profile/bin:$__savedpath"
+    unset __savedpath
 fi
