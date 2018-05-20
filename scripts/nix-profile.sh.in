@@ -76,6 +76,6 @@ if [ -n "$HOME" ] && [ -n "$USER" ]; then
         export MANPATH="$HOME/.nix-profile/share/man:$MANPATH"
     fi
 
-    export PATH="$HOME/.nix-profile/bin:$__savedpath"
+    export PATH="$HOME/.nix-profile/bin:@localstatedir@/nix/profiles/default/bin:$__savedpath"
     unset __savedpath
 fi
