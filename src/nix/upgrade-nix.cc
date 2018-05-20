@@ -120,6 +120,9 @@ struct CmdUpgradeNix : MixDryRun, StoreCommand
         if (hasPrefix(where, "/run/current-system"))
             throw Error("Nix on NixOS must be upgraded via 'nixos-rebuild'");
 
+        if (hasPrefix(where, "/opt/nix-multiuser"))
+            throw Error("Nix installed with the multi-user distro packages must be upgraded by upgrading the corresponding distro package");
+
         Path profileDir = dirOf(where);
 
         // Resolve profile to /nix/var/nix/profiles/<name> link.
