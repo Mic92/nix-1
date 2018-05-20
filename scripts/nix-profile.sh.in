@@ -2,15 +2,15 @@ if [ -n "$HOME" ] && [ -n "$USER" ]; then
     __savedpath="$PATH"
     export PATH=@coreutils@
 
-    # Set up the per-user profile.
-    # This part should be kept in sync with nixpkgs:nixos/modules/programs/shell.nix
+    # This part should be kept in sync with nixpkgs:nixos/modules/config/shells-environment.nix
 
     NIX_LINK=$HOME/.nix-profile
 
-    NIX_USER_PROFILE_DIR=@localstatedir@/nix/profiles/per-user/$USER
+    export NIX_USER_PROFILE_DIR=@localstatedir@/nix/profiles/per-user/$USER
+    export NIX_PROFILES="@localstatedir@/nix/profiles/default $NIX_USER_PROFILE_DIR"
 
+    # Set up the per-user profile.
     mkdir -m 0755 -p "$NIX_USER_PROFILE_DIR"
-
     if [ "$(stat --printf '%u' "$NIX_USER_PROFILE_DIR")" != "$(id -u)" ]; then
         echo "Nix: WARNING: bad ownership on "$NIX_USER_PROFILE_DIR", should be $(id -u)" >&2
     fi
@@ -55,10 +55,6 @@ if [ -n "$HOME" ] && [ -n "$USER" ]; then
     # <nixpkgs> paths work when the user has fetched the Nixpkgs
     # channel.
     export NIX_PATH="${NIX_PATH:+$NIX_PATH:}nixpkgs=$HOME/.nix-defexpr/channels/nixpkgs"
-
-    # Set up environment.
-    # This part should be kept in sync with nixpkgs:nixos/modules/programs/environment.nix
-    NIX_PROFILES="@localstatedir@/nix/profiles/default $NIX_USER_PROFILE_DIR"
 
     # Set $NIX_SSL_CERT_FILE so that Nixpkgs applications like curl work.
     if [ -e /etc/ssl/certs/ca-certificates.crt ]; then # NixOS, Ubuntu, Debian, Gentoo, Arch
