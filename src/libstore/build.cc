@@ -2040,6 +2040,10 @@ void DerivationGoal::startBuilder()
                        --optimise'. */
                     if (errno != EMLINK)
                         throw SysError(format("linking '%1%' to '%2%'") % p % i);
+                    if (errno == EXDEV) {
+                        // fallback to copying
+                        dirsInChroot[i] = r;
+                    }
                     StringSink sink;
                     dumpPath(r, sink);
                     StringSource source(*sink.s);
