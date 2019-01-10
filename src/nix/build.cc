@@ -2,6 +2,7 @@
 #include "common-args.hh"
 #include "shared.hh"
 #include "store-api.hh"
+#include "progress-bar.hh"
 
 using namespace nix;
 
@@ -55,16 +56,24 @@ struct CmdBuild : InstallablesCommand, MixDryRun, MixProfile
 
         if (dryRun) return;
 
+        std::vector<std::string> buildPaths;
         if (outLink != "") {
             for (size_t i = 0; i < buildables.size(); ++i) {
-                for (auto & output : buildables[i].outputs)
+                for (auto & output : buildables[i].outputs) {
                     if (auto store2 = store.dynamic_pointer_cast<LocalFSStore>()) {
                         std::string symlink = outLink;
                         if (i) symlink += fmt("-%d", i);
                         if (output.first != "out") symlink += fmt("-%s", output.first);
                         store2->addPermRoot(output.second, absPath(symlink), true);
                     }
+                    buildPaths.push_back(store->printStorePath(output.second));
+                }
             }
+        }
+        stopProgressBar();
+
+        for (auto &p : buildPaths) {
+            std::cout << p << std::endl;
         }
 
         updateProfile(buildables);
