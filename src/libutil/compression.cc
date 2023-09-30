@@ -36,12 +36,17 @@ struct ChunkedCompressionSink : CompressionSink
     virtual void writeInternal(std::string_view data) = 0;
 };
 
-struct ArchiveDecompressionSource : Source
+DecompressionSource::DecompressionSource(Source & src) {};
+DecompressionSource::~DecompressionSource() {};
+size_t DecompressionSource::read(char * data, size_t len) {
+    return 0;
+};
+
+struct ArchiveDecompressionSource : DecompressionSource
 {
-    std::unique_ptr<TarArchive> archive = 0;
     Source & src;
-    ArchiveDecompressionSource(Source & src) : src(src) {}
-    ~ArchiveDecompressionSource() override {}
+    ArchiveDecompressionSource(Source &src) : DecompressionSource(src), src(src) {};
+    ~ArchiveDecompressionSource() {};
     size_t read(char * data, size_t len) override {
         struct archive_entry * ae;
         if (!archive) {
@@ -59,6 +64,18 @@ struct ArchiveDecompressionSource : Source
         }
         this->archive->check(result, "failed to read compressed data (%s)");
         return result;
+    }
+    private:
+    std::unique_ptr<TarArchive> archive = 0;
+};
+
+struct NoneDecompressionSource : DecompressionSource
+{
+    Source & src;
+    NoneDecompressionSource(Source &src) : DecompressionSource(src), src(src) {};
+    ~NoneDecompressionSource() {};
+    size_t read(char * data, size_t len) override {
+        return src.read(data, len);
     }
 };
 
@@ -136,7 +153,14 @@ struct NoneSink : CompressionSink
             warn("requested compression level '%d' not supported by compression method 'none'", level);
     }
     void finish() override { flush(); }
-    void writeUnbuffered(std::string_view data) override { nextSink(data); }
+    void writeUnbuffered(std::string_view data) override {
+        nextSink(data);
+        // FIXME: this is a hack to make sure that the next sink is actually flushed
+        auto* derived = dynamic_cast<BufferedSink*>(&nextSink);
+        if (derived) {
+            derived->flush();
+        }
+    }
 };
 
 struct BrotliDecompressionSink : ChunkedCompressionSink
@@ -210,6 +234,13 @@ std::unique_ptr<FinishSink> makeDecompressionSink(const std::string & method, Si
             auto decompressionSource = std::make_unique<ArchiveDecompressionSource>(source);
             decompressionSource->drainInto(nextSink);
         });
+}
+
+std::unique_ptr<DecompressionSource> makeDecompressionSource(const std::string & method, Source & source)
+{
+    if (method == "none")
+        return std::make_unique<NoneDecompressionSource>(source);
+    return std::make_unique<ArchiveDecompressionSource>(source);
 }
 
 struct BrotliCompressionSink : ChunkedCompressionSink

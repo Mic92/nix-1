@@ -1,4 +1,5 @@
 #include "ssh-store-config.hh"
+#include "compression.hh"
 #include "store-api.hh"
 #include "local-fs-store.hh"
 #include "remote-store.hh"
@@ -18,6 +19,9 @@ struct SSHStoreConfig : virtual RemoteStoreConfig, virtual CommonSSHStoreConfig
 
     const Setting<Path> remoteProgram{(StoreConfig*) this, "nix-daemon", "remote-program",
         "Path to the `nix-daemon` executable on the remote machine."};
+
+    const Setting<std::string> compression{(StoreConfig*) this, "none", "compression",
+        "Compression algorithm to use for data transfer."};
 
     const std::string name() override { return "Experimental SSH Store"; }
 
@@ -74,6 +78,8 @@ protected:
         }
     };
 
+
+
     ref<RemoteStore::Connection> openConnection() override;
 
     std::string host;
@@ -93,18 +99,28 @@ protected:
 
 ref<RemoteStore::Connection> SSHStore::openConnection()
 {
-    auto conn = make_ref<Connection>();
-
     std::string command = remoteProgram + " --stdio";
     if (remoteStore.get() != "")
         command += " --store " + shellEscape(remoteStore.get());
 
-    conn->sshConn = master.startCommand(command);
-    conn->to = FdSink(conn->sshConn->in.get());
-    conn->from = FdSource(conn->sshConn->out.get());
+    if (compression != "none")
+        command += " --compression " + shellEscape(compression.get());
+
+    auto sshConn = master.startCommand(command);
+    auto toFdSink = std::make_shared<FdSink>(sshConn->in.get());
+    auto to = makeCompressionSink(compression, *toFdSink).get_ptr();
+    auto fromFdSource = std::make_shared<FdSource>(sshConn->out.get());
+    auto from = std::shared_ptr<DecompressionSource>(nix::makeDecompressionSource(compression, *fromFdSource));
+
+    auto conn = make_ref<Connection>();
+    conn->sshConn = std::move(sshConn);
+    conn->to = std::move(to);
+    conn->from = std::move(from);
+    conn->toFdSink = std::move(toFdSink);
+    conn->fromFdSource = std::move(fromFdSource);
     return conn;
 }
 
 static RegisterStoreImplementation<SSHStore, SSHStoreConfig> regSSHStore;
 
-}
+} // namespace nix

@@ -13,6 +13,7 @@
 #include "archive.hh"
 #include "derivations.hh"
 #include "args.hh"
+#include "compression.hh"
 
 namespace nix::daemon {
 
@@ -35,7 +36,7 @@ Sink & operator << (Sink & sink, const Logger::Fields & fields)
    true). */
 struct TunnelLogger : public Logger
 {
-    FdSink & to;
+    BufferedSink & to;
 
     struct State
     {
@@ -47,7 +48,7 @@ struct TunnelLogger : public Logger
 
     unsigned int clientVersion;
 
-    TunnelLogger(FdSink & to, unsigned int clientVersion)
+    TunnelLogger(BufferedSink & to, unsigned int clientVersion)
         : to(to), clientVersion(clientVersion) { }
 
     void enqueueMsg(const std::string & s)
@@ -1005,24 +1006,29 @@ static void performOp(TunnelLogger * logger, ref<Store> store,
 
 void processConnection(
     ref<Store> store,
-    FdSource & from,
-    FdSink & to,
+    FdSource & fromFd,
+    FdSink & toFd,
     TrustedFlag trusted,
-    RecursiveFlag recursive)
+    RecursiveFlag recursive,
+    std::string compression)
 {
-    auto monitor = !recursive ? std::make_unique<MonitorFdHup>(from.fd) : nullptr;
+
+    auto monitor = !recursive ? std::make_unique<MonitorFdHup>(fromFd.fd) : nullptr;
+
+    auto from = makeDecompressionSource(compression, fromFd);
+    auto to = makeCompressionSink(compression, toFd);
 
     /* Exchange the greeting. */
-    unsigned int magic = readInt(from);
+    unsigned int magic = readInt(*from);
     if (magic != WORKER_MAGIC_1) throw Error("protocol mismatch");
-    to << WORKER_MAGIC_2 << PROTOCOL_VERSION;
-    to.flush();
-    unsigned int clientVersion = readInt(from);
+    *to << WORKER_MAGIC_2 << PROTOCOL_VERSION;
+    to->flush();
+    unsigned int clientVersion = readInt(*from);
 
     if (clientVersion < 0x10a)
         throw Error("the Nix client version is too old");
 
-    auto tunnelLogger = new TunnelLogger(to, clientVersion);
+    auto tunnelLogger = new TunnelLogger(*to, clientVersion);
     auto prevLogger = nix::logger;
     // FIXME
     if (!recursive)
@@ -1035,16 +1041,16 @@ void processConnection(
         printMsgUsing(prevLogger, lvlDebug, "%d operations", opCount);
     });
 
-    if (GET_PROTOCOL_MINOR(clientVersion) >= 14 && readInt(from)) {
+    if (GET_PROTOCOL_MINOR(clientVersion) >= 14 && readInt(*from)) {
         // Obsolete CPU affinity.
-        readInt(from);
+        readInt(*from);
     }
 
     if (GET_PROTOCOL_MINOR(clientVersion) >= 11)
-        readInt(from); // obsolete reserveSpace
+        readInt(*from); // obsolete reserveSpace
 
     if (GET_PROTOCOL_MINOR(clientVersion) >= 33)
-        to << nixVersion;
+        *to << nixVersion;
 
     if (GET_PROTOCOL_MINOR(clientVersion) >= 35) {
         // We and the underlying store both need to trust the client for
@@ -1052,7 +1058,7 @@ void processConnection(
         auto temp = trusted
             ? store->isTrustedClient()
             : std::optional { NotTrusted };
-        WorkerProto::WriteConn wconn { .to = to };
+        WorkerProto::WriteConn wconn { .to = *to };
         WorkerProto::write(*store, wconn, temp);
     }
 
@@ -1062,13 +1068,13 @@ void processConnection(
     try {
 
         tunnelLogger->stopWork();
-        to.flush();
+        to->flush();
 
         /* Process client requests. */
         while (true) {
             WorkerProto::Op op;
             try {
-                op = (enum WorkerProto::Op) readInt(from);
+                op = (enum WorkerProto::Op) readInt(*from);
             } catch (Interrupted & e) {
                 break;
             } catch (EndOfFile & e) {
@@ -1082,7 +1088,7 @@ void processConnection(
             debug("performing daemon worker op: %d", op);
 
             try {
-                performOp(tunnelLogger, store, trusted, recursive, clientVersion, from, to, op);
+                performOp(tunnelLogger, store, trusted, recursive, clientVersion, *from, *to, op);
             } catch (Error & e) {
                 /* If we're not in a state where we can send replies, then
                    something went wrong processing the input of the
@@ -1098,19 +1104,19 @@ void processConnection(
                 throw;
             }
 
-            to.flush();
+            to->flush();
 
             assert(!tunnelLogger->state_.lock()->canSendStderr);
         };
 
     } catch (Error & e) {
         tunnelLogger->stopWork(&e);
-        to.flush();
+        to->flush();
         return;
     } catch (std::exception & e) {
         auto ex = Error(e.what());
         tunnelLogger->stopWork(&ex);
-        to.flush();
+        to->flush();
         return;
     }
 }

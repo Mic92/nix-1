@@ -13,6 +13,7 @@ void processConnection(
     FdSource & from,
     FdSink & to,
     TrustedFlag trusted,
-    RecursiveFlag recursive);
+    RecursiveFlag recursive,
+    std::string compression="none");
 
 }

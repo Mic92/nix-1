@@ -1,6 +1,7 @@
 #include "remote-store.hh"
 #include "worker-protocol.hh"
 #include "pool.hh"
+#include "compression.hh"
 
 namespace nix {
 
@@ -16,12 +17,22 @@ struct RemoteStore::Connection
     /**
      * Send with this.
      */
-    FdSink to;
+    std::shared_ptr<BufferedSink> to;
 
     /**
      * Receive with this.
      */
-    FdSource from;
+    std::shared_ptr<DecompressionSource> from;
+
+    /**
+     * Get the underlying `Sink` for this connection.
+     */
+    std::shared_ptr<FdSink> toFdSink;
+
+    /**
+     * Get the underlying `Source` for this connection.
+     */
+    std::shared_ptr<FdSource> fromFdSource;
 
     /**
      * Worker protocol version used for the connection.
@@ -69,7 +80,7 @@ struct RemoteStore::Connection
     operator WorkerProto::ReadConn ()
     {
         return WorkerProto::ReadConn {
-            .from = from,
+            .from = *from,
         };
     }
 
@@ -84,7 +95,7 @@ struct RemoteStore::Connection
     operator WorkerProto::WriteConn ()
     {
         return WorkerProto::WriteConn {
-            .to = to,
+            .to = *to,
         };
     }
 

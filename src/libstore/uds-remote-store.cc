@@ -1,5 +1,6 @@
 #include "uds-remote-store.hh"
 #include "worker-protocol.hh"
+#include "compression.hh"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -69,8 +70,11 @@ ref<RemoteStore::Connection> UDSRemoteStore::openConnection()
 
     nix::connect(conn->fd.get(), path ? *path : settings.nixDaemonSocketFile);
 
-    conn->from.fd = conn->fd.get();
-    conn->to.fd = conn->fd.get();
+    conn->fromFdSource = make_ref<FdSource>(conn->fd.get());
+    conn->toFdSink = make_ref<FdSink>(conn->fd.get());
+
+    conn->to = makeCompressionSink("none", *conn->toFdSink).get_ptr();
+    conn->from = std::shared_ptr<DecompressionSource>(nix::makeDecompressionSource("none", *conn->fromFdSource));
 
     conn->startTime = std::chrono::steady_clock::now();
 
@@ -81,9 +85,9 @@ ref<RemoteStore::Connection> UDSRemoteStore::openConnection()
 void UDSRemoteStore::addIndirectRoot(const Path & path)
 {
     auto conn(getConnection());
-    conn->to << WorkerProto::Op::AddIndirectRoot << path;
+    *conn->to << WorkerProto::Op::AddIndirectRoot << path;
     conn.processStderr();
-    readInt(conn->from);
+    readInt(*conn->from);
 }
 
 

@@ -392,8 +392,8 @@ static void daemonLoop(std::optional<TrustedFlag> forceTrustClientOpt)
  */
 static void forwardStdioConnection(RemoteStore & store) {
     auto conn = store.openConnectionWrapper();
-    int from = conn->from.fd;
-    int to = conn->to.fd;
+    int from = conn->fromFdSource->fd;
+    int to = conn->toFdSink->fd;
 
     auto nfds = std::max(from, STDIN_FILENO) + 1;
     while (true) {
@@ -429,7 +429,7 @@ static void forwardStdioConnection(RemoteStore & store) {
  * @param trustClient Whether to trust the client. Forwarded directly to
  * `processConnection()`.
  */
-static void processStdioConnection(ref<Store> store, TrustedFlag trustClient)
+static void processStdioConnection(ref<Store> store, TrustedFlag trustClient, std::string compression)
 {
     FdSource from(STDIN_FILENO);
     FdSink to(STDOUT_FILENO);
@@ -443,7 +443,7 @@ static void processStdioConnection(ref<Store> store, TrustedFlag trustClient)
  * @param forceTrustClientOpt See `daemonLoop()` and the parameter with
  * the same name over there for details.
  */
-static void runDaemon(bool stdio, std::optional<TrustedFlag> forceTrustClientOpt)
+static void runDaemon(bool stdio, std::optional<TrustedFlag> forceTrustClientOpt, std::string compression = "none")
 {
     if (stdio) {
         auto store = openUncachedStore();
@@ -457,7 +457,7 @@ static void runDaemon(bool stdio, std::optional<TrustedFlag> forceTrustClientOpt
             // `Trusted` is passed in the auto (no override case) because we
             // cannot see who is on the other side of a plain pipe. Limiting
             // access to those is explicitly not `nix-daemon`'s responsibility.
-            processStdioConnection(store, forceTrustClientOpt.value_or(Trusted));
+            processStdioConnection(store, forceTrustClientOpt.value_or(Trusted), compression);
     } else
         daemonLoop(forceTrustClientOpt);
 }
@@ -466,6 +466,7 @@ static int main_nix_daemon(int argc, char * * argv)
 {
     {
         auto stdio = false;
+        std::string compression = "none";
         std::optional<TrustedFlag> isTrustedOpt = std::nullopt;
 
         parseCmdLine(argc, argv, [&](Strings::iterator & arg, const Strings::iterator & end) {
@@ -477,6 +478,11 @@ static int main_nix_daemon(int argc, char * * argv)
                 printVersion("nix-daemon");
             else if (*arg == "--stdio")
                 stdio = true;
+            else if (*arg == "--compression")
+                if (++arg == end)
+                    throw Error("expected argument to --compression");
+                else
+                    compression = *arg;
             else if (*arg == "--force-trusted") {
                 experimentalFeatureSettings.require(Xp::DaemonTrustOverride);
                 isTrustedOpt = Trusted;
@@ -490,7 +496,7 @@ static int main_nix_daemon(int argc, char * * argv)
             return true;
         });
 
-        runDaemon(stdio, isTrustedOpt);
+        runDaemon(stdio, isTrustedOpt, compression);
 
         return 0;
     }

@@ -16,9 +16,18 @@ struct CompressionSink : BufferedSink, FinishSink
     using FinishSink::finish;
 };
 
+class DecompressionSource : public Source {
+public:
+   DecompressionSource(Source & src);
+   ~DecompressionSource();
+   size_t read(char * data, size_t len) override;
+};
+
 std::string decompress(const std::string & method, std::string_view in);
 
 std::unique_ptr<FinishSink> makeDecompressionSink(const std::string & method, Sink & nextSink);
+
+std::unique_ptr<DecompressionSource> makeDecompressionSource(const std::string & method, Source & nextSource);
 
 std::string compress(const std::string & method, std::string_view in, const bool parallel = false, int level = -1);
 
