@@ -8,6 +8,7 @@ queue_rules:
       - check-success=tests (macos-latest)
       - check-success=tests (ubuntu-latest)
       - check-success=vm_tests
+      - check-success=buildbot/nix-build
     merge_method: rebase
     batch_size: 5
 
