@@ -31,15 +31,19 @@ struct Key
     std::string name;
     std::string key;
 
-    /**
-     * Construct Key from a string in the format
-     * ‘<name>:<key-in-base64>’.
-     */
-    Key(std::string_view s);
-
     std::string to_string() const;
 
 protected:
+
+    /**
+     * Construct Key from a string in the format
+     * ‘<name>:<key-in-base64>’.
+     *
+     * @param hideValue Avoid displaying the raw Base64 in error
+     * messages to avoid leaking private keys.
+     */
+    Key(std::string_view s, bool hideValue);
+
     Key(std::string_view name, std::string && key)
         : name(name), key(std::move(key)) { }
 };

@@ -6,6 +6,7 @@
 
 #include <limits.h>
 #include <gtest/gtest.h>
+#include <gmock/gmock.h>
 
 #include <numeric>
 
@@ -99,7 +100,19 @@ TEST(base64Decode, decodeAString)
 
 TEST(base64Decode, decodeThrowsOnInvalidChar)
 {
-    ASSERT_THROW(base64Decode("cXVvZCBlcm_0IGRlbW9uc3RyYW5kdW0="), Error);
+    ASSERT_THROW(base64Decode("cXVvZCBlcm_0IGRlbW9uc3RyYW5kdW0="), FormatError);
+}
+
+TEST(base64Decode, decodeThrowsNoLeak)
+{
+    std::string msg = "cXVvZCBlcm_0IGRlbW9uc3RyYW5kdW0=";
+    try {
+        base64Decode(msg, true);
+    } catch (FormatError & e) {
+        EXPECT_THAT(e.msg(), testing::Not(testing::HasSubstr(msg)));
+        return;
+    }
+    EXPECT_TRUE(false);
 }
 
 /* ----------------------------------------------------------------------------

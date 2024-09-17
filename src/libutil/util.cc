@@ -220,7 +220,7 @@ std::string base64Encode(std::string_view s)
 }
 
 
-std::string base64Decode(std::string_view s)
+std::string base64Decode(std::string_view s, bool hideValue)
 {
     constexpr char npos = -1;
     constexpr std::array<char, 256> base64DecodeChars = [&] {
@@ -244,7 +244,10 @@ std::string base64Decode(std::string_view s)
 
         char digit = base64DecodeChars[(unsigned char) c];
         if (digit == npos) {
-            throw Error("invalid character in Base64 string: '%c' in '%s'", c, s.data());
+            auto msg = hideValue
+                ? "<redacted>"
+                : fmt("'%s'", s.data());
+            throw FormatError("invalid character in Base64 string: '%c' in %s", c, msg);
         }
 
         bits += 6;
