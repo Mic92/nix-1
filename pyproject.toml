@@ -1,0 +1,25 @@
+[project]
+name = "nix"
+requires-python = ">=3.12"
+
+[tool.ruff]
+# Allow lines to be as long as 120.
+line-length = 120
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "D",
+  "S",
+  "FBT001",
+  "FBT002",
+  "LOG",
+  "G004",
+  "EXE003",
+  "EXE005",
+  "E501",
+  "ANN401",
+  "PLR0915",
+  "COM812",
+  "ISC001",
+  "ERA001",
+]
