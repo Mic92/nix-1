@@ -1,33 +1,31 @@
 #!/usr/bin/env python3
 
-import os
-import subprocess
-import sys
+import argparse
 import shutil
-import typing as t
+import subprocess
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-def main():
-    if len(sys.argv) < 4 or '--' not in sys.argv:
-        print("Usage: remove-before-wrapper <output> -- <nix command...>")
-        sys.exit(1)
 
-    # Extract the parts
-    output: str = sys.argv[1]
-    nix_command_idx: int = sys.argv.index('--') + 1
-    nix_command: t.List[str] = sys.argv[nix_command_idx:]
+def main() -> None:
+    arg_parser = argparse.ArgumentParser(description="Remove before wrapper")
+    arg_parser.add_argument("output", type=Path, help="Output file")
+    arg_parser.add_argument("nix_command", nargs=argparse.REMAINDER, help="Nix command")
+    args = arg_parser.parse_args()
 
-    output_temp: str = output + '.tmp'
+    output = Path(args.output)
+    with TemporaryDirectory(prefix=str(output.parent.resolve() / "tmp")) as temp:
+        output_temp = Path(temp) / "output"
 
-    # Remove the output and temp output in case they exist
-    shutil.rmtree(output, ignore_errors=True)
-    shutil.rmtree(output_temp, ignore_errors=True)
+        # Remove the output output in case it exist
+        shutil.rmtree(output, ignore_errors=True)
 
-    # Execute nix command with `--write-to` tempary output
-    nix_command_write_to = nix_command + ['--write-to', output_temp]
-    subprocess.run(nix_command_write_to, check=True)
+        # Execute nix command with `--write-to` tempary output
+        subprocess.run([*args.nix_command, "--write-to", output_temp], check=True)
 
-    # Move the temporary output to the intended location
-    os.rename(output_temp, output)
+        # Move the temporary output to the intended location
+        Path(output_temp).rename(output)
+
 
 if __name__ == "__main__":
     main()
