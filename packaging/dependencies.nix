@@ -38,6 +38,10 @@ let
   # Indirection for Nixpkgs to override when package.nix files are vendored
   filesetToSource = lib.fileset.toSource;
 
+  /** Given a set of layers, create a mkDerivation-like function */
+  mkPackageBuilder = exts: userFn:
+    stdenv.mkDerivation (lib.extends (lib.composeManyExtensions exts) userFn);
+
   localSourceLayer = finalAttrs: prevAttrs:
     let
       workDirPath =
@@ -58,6 +62,28 @@ let
       # Clear what `derivation` can't/shouldn't serialize; see prevAttrs.workDir.
       fileset = null;
       workDir = null;
+    };
+
+  mesonLayer = finalAttrs: prevAttrs:
+    {
+      nativeBuildInputs = [
+        pkgs.buildPackages.meson
+        pkgs.buildPackages.ninja
+      ] ++ prevAttrs.nativeBuildInputs or [];
+    };
+
+  mesonBuildLayer = finalAttrs: prevAttrs:
+    {
+      nativeBuildInputs = prevAttrs.nativeBuildInputs or [] ++ [
+        pkgs.buildPackages.pkg-config
+      ];
+      separateDebugInfo = !stdenv.hostPlatform.isStatic;
+      hardeningDisable = lib.optional stdenv.hostPlatform.isStatic "pie";
+    };
+
+  mesonLibraryLayer = finalAttrs: prevAttrs:
+    {
+      outputs = prevAttrs.outputs or [ "out" ] ++ [ "dev" ];
     };
 
   # Work around weird `--as-needed` linker behavior with BSD, see
@@ -85,14 +111,6 @@ scope: {
     requiredSystemFeatures = [ ];
   };
 
-  libseccomp = pkgs.libseccomp.overrideAttrs (_: rec {
-    version = "2.5.5";
-    src = pkgs.fetchurl {
-      url = "https://github.com/seccomp/libseccomp/releases/download/v${version}/libseccomp-${version}.tar.gz";
-      hash = "sha256-JIosik2bmFiqa69ScSw0r+/PnJ6Ut23OAsHJqiX7M3U=";
-    };
-  });
-
   boehmgc = pkgs.boehmgc.override {
     enableLargeConfig = true;
   };
@@ -111,8 +129,6 @@ scope: {
   });
 
   libgit2 = pkgs.libgit2.overrideAttrs (attrs: {
-    src = inputs.libgit2;
-    version = inputs.libgit2.lastModifiedDate;
     cmakeFlags = attrs.cmakeFlags or []
       ++ [ "-DUSE_SSH=exec" ];
     nativeBuildInputs = attrs.nativeBuildInputs or []
@@ -140,46 +156,29 @@ scope: {
       ];
   });
 
-  busybox-sandbox-shell = pkgs.busybox-sandbox-shell or (pkgs.busybox.override {
-    useMusl = true;
-    enableStatic = true;
-    enableMinimal = true;
-    extraConfig = ''
-      CONFIG_FEATURE_FANCY_ECHO y
-      CONFIG_FEATURE_SH_MATH y
-      CONFIG_FEATURE_SH_MATH_64 y
-
-      CONFIG_ASH y
-      CONFIG_ASH_OPTIMIZE_FOR_SIZE y
-
-      CONFIG_ASH_ALIAS y
-      CONFIG_ASH_BASH_COMPAT y
-      CONFIG_ASH_CMDCMD y
-      CONFIG_ASH_ECHO y
-      CONFIG_ASH_GETOPTS y
-      CONFIG_ASH_INTERNAL_GLOB y
-      CONFIG_ASH_JOB_CONTROL y
-      CONFIG_ASH_PRINTF y
-      CONFIG_ASH_TEST y
-    '';
-  });
-
-  # TODO change in Nixpkgs, Windows works fine. First commit of
-  # https://github.com/NixOS/nixpkgs/pull/322977 backported will fix.
-  toml11 = pkgs.toml11.overrideAttrs (old: {
-    meta.platforms = lib.platforms.all;
-  });
-
   inherit resolvePath filesetToSource;
 
-  mkMesonDerivation = f: let
-    exts = [
+  mkMesonDerivation =
+    mkPackageBuilder [
+      miscGoodPractice
+      localSourceLayer
+      mesonLayer
+    ];
+  mkMesonExecutable =
+    mkPackageBuilder [
       miscGoodPractice
       bsdNoLinkAsNeeded
       localSourceLayer
+      mesonLayer
+      mesonBuildLayer
     ];
-  in stdenv.mkDerivation
-   (lib.extends
-     (lib.foldr lib.composeExtensions (_: _: {}) exts)
-     f);
+  mkMesonLibrary =
+    mkPackageBuilder [
+      miscGoodPractice
+      bsdNoLinkAsNeeded
+      localSourceLayer
+      mesonLayer
+      mesonBuildLayer
+      mesonLibraryLayer
+    ];
 }

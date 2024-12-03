@@ -1,11 +1,11 @@
 {
   description = "The purely functional package manager";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+  # TODO: Switch to nixos release after the branch off
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/release-24.11";
+
   inputs.nixpkgs-regression.url = "github:NixOS/nixpkgs/215d4d0fd80ca5163643b03a33fde804a29cc1e2";
-  inputs.nixpkgs-23-11.url = "github:NixOS/nixpkgs/a62e6edd6d5e1fa0329b8653c801147986f8d446";
   inputs.flake-compat = { url = "github:edolstra/flake-compat"; flake = false; };
-  inputs.libgit2 = { url = "github:libgit2/libgit2/v1.8.1"; flake = false; };
 
   # dev tooling
   inputs.flake-parts.url = "github:hercules-ci/flake-parts";
@@ -18,7 +18,7 @@
   inputs.git-hooks-nix.inputs.flake-compat.follows = "";
   inputs.git-hooks-nix.inputs.gitignore.follows = "";
 
-  outputs = inputs@{ self, nixpkgs, nixpkgs-regression, libgit2, ... }:
+  outputs = inputs@{ self, nixpkgs, nixpkgs-regression, ... }:
 
 
     let
@@ -36,7 +36,8 @@
         "armv6l-unknown-linux-gnueabihf"
         "armv7l-unknown-linux-gnueabihf"
         "riscv64-unknown-linux-gnu"
-        "x86_64-unknown-netbsd"
+        # Disabled because of https://github.com/NixOS/nixpkgs/issues/344423
+        # "x86_64-unknown-netbsd"
         "x86_64-unknown-freebsd"
         "x86_64-w64-mingw32"
       ];
@@ -145,7 +146,6 @@
             if prev.stdenv.hostPlatform.system == "i686-linux"
             then (prev.pre-commit.override (o: { dotnet-sdk = ""; })).overridePythonAttrs (o: { doCheck = false; })
             else prev.pre-commit;
-
         };
 
     in {
@@ -221,6 +221,7 @@
           inherit (nixpkgsFor.${system}.native)
             changelog-d;
           default = self.packages.${system}.nix-ng;
+          nix-manual = nixpkgsFor.${system}.native.nixComponents.nix-manual;
           nix-internal-api-docs = nixpkgsFor.${system}.native.nixComponents.nix-internal-api-docs;
           nix-external-api-docs = nixpkgsFor.${system}.native.nixComponents.nix-external-api-docs;
         }
@@ -293,108 +294,24 @@
       });
 
       devShells = let
-        makeShell = pkgs: stdenv: (pkgs.nix.override { inherit stdenv; forDevShell = true; }).overrideAttrs (attrs:
-        let
-          buildCanExecuteHost = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
-          modular = devFlake.getSystem stdenv.buildPlatform.system;
-          transformFlag = prefix: flag:
-            assert builtins.isString flag;
-            let
-              rest = builtins.substring 2 (builtins.stringLength flag) flag;
-            in
-              "-D${prefix}:${rest}";
-          havePerl = stdenv.buildPlatform == stdenv.hostPlatform && stdenv.hostPlatform.isUnix;
-          ignoreCrossFile = flags: builtins.filter (flag: !(lib.strings.hasInfix "cross-file" flag)) flags;
-        in {
-          pname = "shell-for-" + attrs.pname;
-
-          # Remove the version suffix to avoid unnecessary attempts to substitute in nix develop
-          version = lib.fileContents ./.version;
-          name = attrs.pname;
-
-          installFlags = "sysconfdir=$(out)/etc";
-          shellHook = ''
-            PATH=$prefix/bin:$PATH
-            unset PYTHONPATH
-            export MANPATH=$out/share/man:$MANPATH
-
-            # Make bash completion work.
-            XDG_DATA_DIRS+=:$out/share
-          '';
-
-          # We use this shell with the local checkout, not unpackPhase.
-          src = null;
-
-          env = {
-            # Needed for Meson to find Boost.
-            # https://github.com/NixOS/nixpkgs/issues/86131.
-            BOOST_INCLUDEDIR = "${lib.getDev pkgs.nixDependencies.boost}/include";
-            BOOST_LIBRARYDIR = "${lib.getLib pkgs.nixDependencies.boost}/lib";
-            # For `make format`, to work without installing pre-commit
-            _NIX_PRE_COMMIT_HOOKS_CONFIG =
-              "${(pkgs.formats.yaml { }).generate "pre-commit-config.yaml" modular.pre-commit.settings.rawConfig}";
-          };
-
-          mesonFlags =
-            map (transformFlag "libutil") (ignoreCrossFile pkgs.nixComponents.nix-util.mesonFlags)
-            ++ map (transformFlag "libstore") (ignoreCrossFile pkgs.nixComponents.nix-store.mesonFlags)
-            ++ map (transformFlag "libfetchers") (ignoreCrossFile pkgs.nixComponents.nix-fetchers.mesonFlags)
-            ++ lib.optionals havePerl (map (transformFlag "perl") (ignoreCrossFile pkgs.nixComponents.nix-perl-bindings.mesonFlags))
-            ++ map (transformFlag "libexpr") (ignoreCrossFile pkgs.nixComponents.nix-expr.mesonFlags)
-            ++ map (transformFlag "libcmd") (ignoreCrossFile pkgs.nixComponents.nix-cmd.mesonFlags)
-            ;
-
-          nativeBuildInputs = attrs.nativeBuildInputs or []
-            ++ pkgs.nixComponents.nix-util.nativeBuildInputs
-            ++ pkgs.nixComponents.nix-store.nativeBuildInputs
-            ++ pkgs.nixComponents.nix-fetchers.nativeBuildInputs
-            ++ lib.optionals havePerl pkgs.nixComponents.nix-perl-bindings.nativeBuildInputs
-            ++ pkgs.nixComponents.nix-internal-api-docs.nativeBuildInputs
-            ++ pkgs.nixComponents.nix-external-api-docs.nativeBuildInputs
-            ++ pkgs.nixComponents.nix-functional-tests.baseNativeBuildInputs
-            ++ lib.optional
-              (!buildCanExecuteHost
-                 # Hack around https://github.com/nixos/nixpkgs/commit/bf7ad8cfbfa102a90463433e2c5027573b462479
-                 && !(stdenv.hostPlatform.isWindows && stdenv.buildPlatform.isDarwin)
-                 && stdenv.hostPlatform.emulatorAvailable pkgs.buildPackages
-                 && lib.meta.availableOn stdenv.buildPlatform (stdenv.hostPlatform.emulator pkgs.buildPackages))
-              pkgs.buildPackages.mesonEmulatorHook
-            ++ [
-              pkgs.buildPackages.cmake
-              pkgs.buildPackages.shellcheck
-              pkgs.buildPackages.changelog-d
-              modular.pre-commit.settings.package
-              (pkgs.writeScriptBin "pre-commit-hooks-install"
-                modular.pre-commit.settings.installationScript)
-            ]
-            # TODO: Remove the darwin check once
-            # https://github.com/NixOS/nixpkgs/pull/291814 is available
-            ++ lib.optional (stdenv.cc.isClang && !stdenv.buildPlatform.isDarwin) pkgs.buildPackages.bear
-            ++ lib.optional (stdenv.cc.isClang && stdenv.hostPlatform == stdenv.buildPlatform) (lib.hiPrio pkgs.buildPackages.clang-tools);
-
-          buildInputs = attrs.buildInputs or []
-            ++ [
-              pkgs.gtest
-              pkgs.rapidcheck
-            ]
-            ++ lib.optional havePerl pkgs.perl
-            ;
-        });
-        in
+        makeShell = import ./packaging/dev-shell.nix { inherit lib devFlake; };
+        prefixAttrs = prefix: lib.concatMapAttrs (k: v: { "${prefix}-${k}" = v; });
+      in
         forAllSystems (system:
-          let
-            makeShells = prefix: pkgs:
-              lib.mapAttrs'
-              (k: v: lib.nameValuePair "${prefix}-${k}" v)
-              (forAllStdenvs (stdenvName: makeShell pkgs pkgs.${stdenvName}));
-          in
-            (makeShells "native" nixpkgsFor.${system}.native) //
-            (lib.optionalAttrs (!nixpkgsFor.${system}.native.stdenv.isDarwin)
-              (makeShells "static" nixpkgsFor.${system}.static) //
-              (forAllCrossSystems (crossSystem: let pkgs = nixpkgsFor.${system}.cross.${crossSystem}; in makeShell pkgs pkgs.stdenv))) //
-            {
-              default = self.devShells.${system}.native-stdenvPackages;
-            }
+          prefixAttrs "native" (forAllStdenvs (stdenvName: makeShell {
+            pkgs = nixpkgsFor.${system}.stdenvs."${stdenvName}Packages";
+          })) //
+          lib.optionalAttrs (!nixpkgsFor.${system}.native.stdenv.isDarwin) (
+            prefixAttrs "static" (forAllStdenvs (stdenvName: makeShell {
+              pkgs = nixpkgsFor.${system}.stdenvs."${stdenvName}Packages".pkgsStatic;
+            })) //
+            prefixAttrs "cross" (forAllCrossSystems (crossSystem: makeShell {
+              pkgs = nixpkgsFor.${system}.cross.${crossSystem};
+            }))
+          ) //
+          {
+            default = self.devShells.${system}.native-stdenvPackages;
+          }
         );
   };
 }

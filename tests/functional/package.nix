@@ -6,7 +6,6 @@
 , meson
 , ninja
 , pkg-config
-, rsync
 
 , jq
 , git
@@ -25,6 +24,7 @@
 
 # Configuration Options
 
+, pname ? "nix-functional-tests"
 , version
 
 # For running the functional tests against a different pre-built Nix.
@@ -36,8 +36,7 @@ let
 in
 
 mkMesonDerivation (finalAttrs: {
-  pname = "nix-functional-tests";
-  inherit version;
+  inherit pname version;
 
   workDir = ./.;
   fileset = fileset.unions [
@@ -48,11 +47,10 @@ mkMesonDerivation (finalAttrs: {
   ];
 
   # Hack for sake of the dev shell
-  passthru.baseNativeBuildInputs = [
+  passthru.externalNativeBuildInputs = [
     meson
     ninja
     pkg-config
-    rsync
 
     jq
     git
@@ -66,7 +64,7 @@ mkMesonDerivation (finalAttrs: {
     util-linux
   ];
 
-  nativeBuildInputs = finalAttrs.passthru.baseNativeBuildInputs ++ [
+  nativeBuildInputs = finalAttrs.passthru.externalNativeBuildInputs ++ [
     nix-cli
   ];
 
@@ -74,7 +72,6 @@ mkMesonDerivation (finalAttrs: {
     nix-store
     nix-expr
   ];
-
 
   preConfigure =
     # "Inline" .version so it's not a symlink, and includes the suffix.
