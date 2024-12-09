@@ -171,7 +171,7 @@ std::pair<StorePath, Hash> StoreDirConfig::computeStorePath(
     PathFilter & filter) const
 {
     auto [h, size] = hashPath(path, method.getFileIngestionMethod(), hashAlgo, filter);
-    if (size && *size >= settings.warnLargePathThreshold)
+    if (settings.warnLargePathThreshold && size && *size >= settings.warnLargePathThreshold)
         warn("hashed large path '%s' (%s)", path, renderSize(*size));
     return {
         makeFixedOutputPathFromCA(
@@ -214,7 +214,7 @@ StorePath Store::addToStore(
     auto sink = sourceToSink([&](Source & source) {
         LengthSource lengthSource(source);
         storePath = addToStoreFromDump(lengthSource, name, fsm, method, hashAlgo, references, repair);
-        if (lengthSource.total >= settings.warnLargePathThreshold)
+        if (settings.warnLargePathThreshold && lengthSource.total >= settings.warnLargePathThreshold)
             warn("copied large path '%s' to the store (%s)", path, renderSize(lengthSource.total));
     });
     dumpPath(path, *sink, fsm, filter);
@@ -1055,7 +1055,7 @@ std::map<StorePath, StorePath> copyPaths(
         // not be within our control to change that, and we might still want
         // to at least copy the output paths.
         if (e.missingFeature == Xp::CaDerivations)
-            ignoreException();
+            ignoreExceptionExceptInterrupt();
         else
             throw;
     }
@@ -1332,7 +1332,7 @@ ref<Store> openStore(StoreReference && storeURI)
                 return std::make_shared<LocalStore>(params);
         },
         [&](const StoreReference::Specified & g) {
-            for (auto implem : *Implementations::registered)
+            for (const auto & implem : *Implementations::registered)
                 if (implem.uriSchemes.count(g.scheme))
                     return implem.create(g.scheme, g.authority, params);
 
@@ -1363,7 +1363,7 @@ std::list<ref<Store>> getDefaultSubstituters()
             }
         };
 
-        for (auto uri : settings.substituters.get())
+        for (const auto & uri : settings.substituters.get())
             addStore(uri);
 
         stores.sort([](ref<Store> & a, ref<Store> & b) {
