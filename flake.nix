@@ -189,15 +189,16 @@
         binaryTarball = self.hydraJobs.binaryTarball.${system};
         installTests = self.hydraJobs.installTests.${system};
         nixpkgsLibTests = self.hydraJobs.tests.nixpkgsLibTests.${system};
+        repl-completion = nixpkgsFor.${system}.native.callPackage ./tests/repl-completion.nix { };
+      } // (lib.optionalAttrs (builtins.elem system linux64BitSystems)) {
+        dockerImage = self.hydraJobs.dockerImage.${system};
+      } // (lib.optionalAttrs (!(builtins.elem system linux32BitSystems))) {
+        # Haskell's ghc seems to be broken on i686-linux
         rl-next =
           let pkgs = nixpkgsFor.${system}.native;
           in pkgs.buildPackages.runCommand "test-rl-next-release-notes" { } ''
           LANG=C.UTF-8 ${pkgs.changelog-d}/bin/changelog-d ${./doc/manual/rl-next} >$out
         '';
-        repl-completion = nixpkgsFor.${system}.native.callPackage ./tests/repl-completion.nix { };
-      } // (lib.optionalAttrs (builtins.elem system linux64BitSystems)) {
-        dockerImage = self.hydraJobs.dockerImage.${system};
-      } // (lib.optionalAttrs (!(builtins.elem system linux32BitSystems))) {
         # Some perl dependencies are broken on i686-linux.
         # Since the support is only best-effort there, disable the perl
         # bindings
