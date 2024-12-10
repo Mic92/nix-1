@@ -5,10 +5,14 @@
     inputs.git-hooks-nix.flakeModule
   ];
 
-  perSystem = { config, pkgs, ... }: {
+  perSystem = { pkgs, ... }: {
 
     # https://flake.parts/options/git-hooks-nix#options
+    # haskell no longer builds on i686-linux
+    pre-commit.check.enable = pkgs.stdenv.hostPlatform.system != "i686-linux";
     pre-commit.settings = {
+      # See https://github.com/NixOS/nixpkgs/pull/214409
+      # Remove when fixed in this flake's nixpkgs
       hooks = {
         clang-format = {
           enable = true;
