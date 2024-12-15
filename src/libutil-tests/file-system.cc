@@ -262,3 +262,17 @@ TEST(pathExists, bogusPathDoesNotExist)
     ASSERT_FALSE(pathExists("/schnitzel/darmstadt/pommes"));
 }
 }
+
+/* ----------------------------------------------------------------------------
+ * makeParentCanonical
+ * --------------------------------------------------------------------------*/
+
+TEST(makeParentCanonical, noParent)
+{
+    ASSERT_EQ(nix::makeParentCanonical("file"), nix::absPath(std::filesystem::path("file")));
+}
+
+TEST(makeParentCanonical, root)
+{
+    ASSERT_EQ(nix::makeParentCanonical("/"), "/");
+}
