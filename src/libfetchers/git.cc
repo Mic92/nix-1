@@ -13,8 +13,8 @@
 #include "git-utils.hh"
 #include "logging.hh"
 #include "finally.hh"
-
 #include "fetch-settings.hh"
+#include "json-utils.hh"
 
 #include <regex>
 #include <string.h>
@@ -513,8 +513,6 @@ struct GitInputScheme : InputScheme
         assert(!repoInfo.workdirInfo.isDirty);
 
         auto origRev = input.getRev();
-
-        std::string name = input.getName();
 
         auto originalRef = input.getRef();
         auto ref = originalRef ? *originalRef : getDefaultRef(repoInfo);

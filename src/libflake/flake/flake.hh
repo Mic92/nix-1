@@ -157,6 +157,11 @@ struct LockFlags
     bool writeLockFile = true;
 
     /**
+     * Throw an exception when the flake has an unlocked input.
+     */
+    bool failOnUnlocked = false;
+
+    /**
      * Whether to use the registries to lookup indirect flake
      * references like 'nixpkgs'.
      */
@@ -233,5 +238,12 @@ void emitTreeAttrs(
     Value & v,
     bool emptyRevFallback = false,
     bool forceDirty = false);
+
+/**
+ * An internal builtin similar to `fetchTree`, except that it
+ * always treats the input as final (i.e. no attributes can be
+ * added/removed/changed).
+ */
+void prim_fetchFinalTree(EvalState & state, const PosIdx pos, Value * * args, Value & v);
 
 }
