@@ -6,11 +6,17 @@
 #include "config-global.hh"
 #include "source-path.hh"
 #include "position.hh"
+#include <filesystem>
+#include <poll.h>
+#include <unistd.h>
+#include <cerrno>
 
 #include <atomic>
 #include <sstream>
 #include <nlohmann/json.hpp>
 #include <iostream>
+
+#include <syslog.h>
 
 namespace nix {
 
@@ -203,7 +209,33 @@ struct JSONLogger : Logger {
 
     void write(const nlohmann::json & json)
     {
-        writeLine(fd, "@nix " + json.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
+        while (true) {
+            try {
+                writeLine(fd, "@nix " + json.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace));
+                break; // Exit the loop if writeLine is successful
+            } catch (SysError & e) {
+
+                if (e.errNo == EAGAIN) {
+                    struct pollfd pfd;
+                    pfd.fd = fd;
+                    pfd.events = POLLOUT;
+                    // TODO: this is only kept temporary for debugging
+                    #ifdef __linux__
+                    int is_blocking = fcntl(fd, F_GETFL) & O_NONBLOCK;
+                    syslog(LOG_WARNING, "Failed to write to file descriptor: %s. File: %s, is_blocking: %d", e.what(), std::filesystem::read_symlink("/proc/self/fd/" + std::to_string(fd)).c_str(), is_blocking);
+                    #endif
+
+                    // Wait for the file descriptor to be ready for writing
+                    int ret = poll(&pfd, 1, -1);
+                    if (ret == -1) {
+                        throw SysError("poll on file descriptor failed");
+                    }
+                } else {
+                    // Rethrow the exception if it's not EAGAIN
+                    throw;
+                }
+            }
+        }
     }
 
     void log(Verbosity lvl, std::string_view s) override
