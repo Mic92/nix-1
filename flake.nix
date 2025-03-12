@@ -34,7 +34,9 @@
 
       officialRelease = false;
 
-      linux32BitSystems = [ "i686-linux" ];
+      linux32BitSystems = [
+        #"i686-linux"
+      ];
       linux64BitSystems = [
         "x86_64-linux"
         "aarch64-linux"
