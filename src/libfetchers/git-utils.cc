@@ -70,6 +70,79 @@ bool operator==(const git_oid & oid1, const git_oid & oid2)
     return git_oid_equal(&oid1, &oid2);
 }
 
+namespace {
+
+int matchesDotPlusGit(const std::string & str)
+{
+    // String must have at least 4 characters (at least one '.' plus "git")
+    if (str.size() < 4) {
+        return 0;
+    }
+
+    // Count consecutive dots at the beginning
+    size_t dotCount = 0;
+    while (dotCount < str.size() && str[dotCount] == '.') {
+        dotCount++;
+    }
+
+    // Must have at least one dot
+    if (dotCount == 0) {
+        return 0;
+    }
+
+    // After the dots, check if the remaining string is exactly "git"
+    if ((str.size() == dotCount + 3) && (str[dotCount] == 'g') && (str[dotCount + 1] == 'i')
+        && (str[dotCount + 2] == 't')) {
+        return dotCount;
+    }
+    return 0;
+}
+
+std::string escapeDotGit(const std::string & filename)
+{
+    // Check if this filename matches the pattern of dots followed by "git"
+    int dotCount = matchesDotPlusGit(filename);
+    if (dotCount == 0) {
+        // Not a dot+git pattern, return as is
+        return filename;
+    }
+
+    std::string result(dotCount * 2, '.'); // String with 2*dotCount dots
+    result += "git";
+
+    return result;
+}
+
+std::string unescapeDotGit(const std::string filename)
+{
+    // Check if this filename matches the pattern of dots followed by "git"
+    int dotCount = matchesDotPlusGit(filename);
+    // Ensure dots are even for unescaping (must be divisible by 2)
+    if (dotCount == 0 || dotCount % 2 != 0) {
+        // Can't unescape an odd number of dots, return as is
+        return filename;
+    }
+
+    // Create a new string with half the dots plus "git"
+    std::string result(dotCount / 2, '.'); // String with dotCount/2 dots
+    result += "git";
+
+    return result;
+}
+
+const git_tree_entry * gitTreebuilderGet(git_treebuilder * bld, std::string name)
+{
+    auto escapedName = escapeDotGit(name);
+    return git_treebuilder_get(bld, escapedName.c_str());
+}
+
+const std::string gitTreeEntryName(const git_tree_entry * entry)
+{
+    auto escapedName = git_tree_entry_name(entry);
+    return unescapeDotGit(escapedName);
+}
+} // namespace
+
 namespace nix {
 
 struct GitSourceAccessor;
@@ -731,6 +804,9 @@ struct GitSourceAccessor : SourceAccessor
         GitAccessorOptions options;
     };
 
+    struct Submodule
+    {};
+
     Sync<State> state_;
 
     GitSourceAccessor(ref<GitRepoImpl> repo_, const Hash & rev, const GitAccessorOptions & options)
@@ -827,7 +903,7 @@ struct GitSourceAccessor : SourceAccessor
                     for (size_t n = 0; n < count; ++n) {
                         auto entry = git_tree_entry_byindex(tree.get(), n);
                         // FIXME: add to cache
-                        res.emplace(std::string(git_tree_entry_name(entry)), DirEntry{});
+                        res.emplace(std::string(gitTreeEntryName(entry)), DirEntry{});
                     }
 
                     return res;
@@ -889,7 +965,7 @@ struct GitSourceAccessor : SourceAccessor
             if (git_tree_entry_dup(Setter(copy), entry))
                 throw Error("dupping tree entry: %s", git_error_last()->message);
 
-            auto entryName = std::string_view(git_tree_entry_name(entry));
+            auto entryName = gitTreeEntryName(entry);
 
             if (entryName == name)
                 res = copy.get();
@@ -929,9 +1005,6 @@ struct GitSourceAccessor : SourceAccessor
             throw Error("'%s' does not exist", showPath(path));
         return entry;
     }
-
-    struct Submodule
-    {};
 
     std::variant<Tree, Submodule> getTree(State & state, const CanonPath & path)
     {
@@ -1080,7 +1153,7 @@ struct GitFileSystemObjectSinkImpl : GitFileSystemObjectSink
         const git_tree_entry * entry;
         Tree prevTree = nullptr;
 
-        if (!pendingDirs.empty() && (entry = git_treebuilder_get(pendingDirs.back().builder.get(), name.c_str()))) {
+        if (!pendingDirs.empty() && (entry = gitTreebuilderGet(pendingDirs.back().builder.get(), name))) {
             /* Clone a tree that we've already finished. This happens
                if a tarball has directory entries that are not
                contiguous. */
@@ -1141,7 +1214,8 @@ struct GitFileSystemObjectSinkImpl : GitFileSystemObjectSink
     {
         assert(!pendingDirs.empty());
         auto & pending = pendingDirs.back();
-        if (git_treebuilder_insert(nullptr, pending.builder.get(), name.c_str(), &oid, mode))
+        auto escapedName = escapeDotGit(name);
+        if (git_treebuilder_insert(nullptr, pending.builder.get(), escapedName.c_str(), &oid, mode))
             throw Error("adding a file to a tree builder: %s", git_error_last()->message);
     };
 
@@ -1317,7 +1391,7 @@ struct GitFileSystemObjectSinkImpl : GitFileSystemObjectSink
         for (auto & c : CanonPath(relTargetLeft)) {
             if (auto builder = std::get_if<git_treebuilder *>(&curDir)) {
                 assert(*builder);
-                if (!(entry = git_treebuilder_get(*builder, std::string(c).c_str())))
+                if (!(entry = gitTreebuilderGet(*builder, std::string(c))))
                     throw Error("cannot find hard link target '%s' for path '%s'", target, path);
                 curDir = *git_tree_entry_id(entry);
             } else if (auto oid = std::get_if<git_oid>(&curDir)) {
