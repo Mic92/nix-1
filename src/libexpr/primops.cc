@@ -16,6 +16,7 @@
 #include "nix/fetchers/fetch-to-store.hh"
 
 #include <boost/container/small_vector.hpp>
+#include <iostream>
 #include <nlohmann/json.hpp>
 
 #include <sys/types.h>
@@ -1478,8 +1479,9 @@ static void derivationStrictInternal(
                 .hash = std::move(h),
             },
         };
-
-        drv.env["out"] = state.store->printStorePath(dof.path(*state.store, drvName, "out"));
+        auto outputPathStr = state.store->printStorePath(dof.path(*state.store, drvName, "out"));
+        drv.env["out"] = outputPathStr;
+        std::cerr << "fixedOutputDerivation: " << outputPathStr << "\n";
         drv.outputs.insert_or_assign("out", std::move(dof));
     }
 
@@ -1532,7 +1534,10 @@ static void derivationStrictInternal(
                         i
                     ).atPos(v).debugThrow();
                 auto outPath = state.store->makeOutputPath(i, *h, drvName);
-                drv.env[i] = state.store->printStorePath(outPath);
+                std::string outPathStr = state.store->printStorePath(outPath);
+                drv.env[i] = outPathStr;
+
+                std::cerr << "outPath: " << outPathStr << "\n";
                 drv.outputs.insert_or_assign(
                     i,
                     DerivationOutput::InputAddressed {
