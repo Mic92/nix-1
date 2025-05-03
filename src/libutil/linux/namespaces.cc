@@ -66,16 +66,16 @@ bool mountAndPidNamespacesSupported()
 
             Pid pid = startProcess([&]()
             {
-                /* Make sure we don't remount the parent's /proc. */
-                if (mount(0, "/", 0, MS_PRIVATE | MS_REC, 0) == -1)
-                    _exit(1);
+                ///* Make sure we don't remount the parent's /proc. */
+                //if (mount(0, "/", 0, MS_PRIVATE | MS_REC, 0) == -1)
+                //    _exit(1);
 
-                /* Test whether we can remount /proc. The kernel disallows
-                   this if /proc is not fully visible, i.e. if there are
-                   filesystems mounted on top of files inside /proc.  See
-                   https://lore.kernel.org/lkml/87tvsrjai0.fsf@xmission.com/T/. */
-                if (mount("none", "/proc", "proc", 0, 0) == -1)
-                    _exit(2);
+                ///* Test whether we can remount /proc. The kernel disallows
+                //   this if /proc is not fully visible, i.e. if there are
+                //   filesystems mounted on top of files inside /proc.  See
+                //   https://lore.kernel.org/lkml/87tvsrjai0.fsf@xmission.com/T/. */
+                //if (mount("none", "/proc", "proc", 0, 0) == -1)
+                //    _exit(2);
 
                 _exit(0);
             }, {
