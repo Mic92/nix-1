@@ -8,7 +8,9 @@
 #include <nlohmann/json.hpp>
 
 namespace nix {
+
 using json = nlohmann::json;
+
 // TODO: rename. It doesn't print.
 json printValueAsJSON(
     EvalState & state, bool strict, Value & v, const PosIdx pos, NixStringContext & context, bool copyToStore)

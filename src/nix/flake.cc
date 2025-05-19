@@ -138,6 +138,7 @@ public:
         lockFlags.recreateLockFile = updateAll;
         lockFlags.writeLockFile = true;
         lockFlags.applyNixConfig = true;
+        lockFlags.requireLockable = false;
 
         lockFlake();
     }
@@ -170,6 +171,7 @@ struct CmdFlakeLock : FlakeCommand
         lockFlags.writeLockFile = true;
         lockFlags.failOnUnlocked = true;
         lockFlags.applyNixConfig = true;
+        lockFlags.requireLockable = false;
 
         lockFlake();
     }
@@ -218,11 +220,17 @@ struct CmdFlakeMetadata : FlakeCommand, MixJSON
 
     void run(nix::ref<nix::Store> store) override
     {
+        lockFlags.requireLockable = false;
         auto lockedFlake = lockFlake();
         auto & flake = lockedFlake.flake;
 
-        // Currently, all flakes are in the Nix store via the rootFS accessor.
-        auto storePath = store->printStorePath(store->toStorePath(flake.path.path.abs()).first);
+        /* Hack to show the store path if available. */
+        std::optional<StorePath> storePath;
+        if (store->isInStore(flake.path.path.abs())) {
+            auto path = store->toStorePath(flake.path.path.abs()).first;
+            if (store->isValidPath(path))
+                storePath = path;
+        }
 
         if (json) {
             nlohmann::json j;
@@ -244,7 +252,8 @@ struct CmdFlakeMetadata : FlakeCommand, MixJSON
                 j["revCount"] = *revCount;
             if (auto lastModified = flake.lockedRef.input.getLastModified())
                 j["lastModified"] = *lastModified;
-            j["path"] = storePath;
+            if (storePath)
+                j["path"] = store->printStorePath(*storePath);
             j["locks"] = lockedFlake.lockFile.toJSON().first;
             if (auto fingerprint = lockedFlake.getFingerprint(store, fetchSettings))
                 j["fingerprint"] = fingerprint->to_string(HashFormat::Base16, false);
@@ -255,7 +264,8 @@ struct CmdFlakeMetadata : FlakeCommand, MixJSON
                 logger->cout(ANSI_BOLD "Locked URL:" ANSI_NORMAL "    %s", flake.lockedRef.to_string());
             if (flake.description)
                 logger->cout(ANSI_BOLD "Description:" ANSI_NORMAL "   %s", *flake.description);
-            logger->cout(ANSI_BOLD "Path:" ANSI_NORMAL "          %s", storePath);
+            if (storePath)
+                logger->cout(ANSI_BOLD "Path:" ANSI_NORMAL "          %s", store->printStorePath(*storePath));
             if (auto rev = flake.lockedRef.input.getRev())
                 logger->cout(ANSI_BOLD "Revision:" ANSI_NORMAL "      %s", rev->to_string(HashFormat::Base16, false));
             if (auto dirtyRev = fetchers::maybeGetStrAttr(flake.lockedRef.toAttrs(), "dirtyRev"))
@@ -613,7 +623,7 @@ struct CmdFlakeCheck : FlakeCommand
                     if (name == "checks") {
                         state->forceAttrs(vOutput, pos, "");
                         for (auto & attr : *vOutput.attrs()) {
-                            std::string_view attr_name = state->symbols[attr.name];
+                            const auto & attr_name = state->symbols[attr.name];
                             checkSystemName(attr_name, attr.pos);
                             if (checkSystemType(attr_name, attr.pos)) {
                                 state->forceAttrs(*attr.value, attr.pos, "");
@@ -1046,7 +1056,8 @@ struct CmdFlakeArchive : FlakeCommand, MixJSON, MixDryRun
 
         StorePathSet sources;
 
-        auto storePath = store->toStorePath(flake.flake.path.path.abs()).first;
+        auto storePath = dryRun ? flake.flake.lockedRef.input.computeStorePath(*store)
+                                : std::get<StorePath>(flake.flake.lockedRef.input.fetchToStore(store));
 
         sources.insert(storePath);
 
@@ -1059,7 +1070,7 @@ struct CmdFlakeArchive : FlakeCommand, MixJSON, MixDryRun
                     std::optional<StorePath> storePath;
                     if (!(*inputNode)->lockedRef.input.isRelative()) {
                         storePath = dryRun ? (*inputNode)->lockedRef.input.computeStorePath(*store)
-                                           : (*inputNode)->lockedRef.input.fetchToStore(store).first;
+                                           : std::get<StorePath>((*inputNode)->lockedRef.input.fetchToStore(store));
                         sources.insert(*storePath);
                     }
                     if (json) {

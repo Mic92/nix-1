@@ -107,7 +107,7 @@ bool createUserEnv(
        environment. */
     auto manifestFile = ({
         std::ostringstream str;
-        printAmbiguous(manifest, state.symbols, str, nullptr, std::numeric_limits<int>::max());
+        printAmbiguous(state, manifest, str, nullptr, std::numeric_limits<int>::max());
         StringSource source{toView(str)};
         state.store->addToStoreFromDump(
             source,

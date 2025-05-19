@@ -14,6 +14,7 @@
 #include "nix/expr/value-to-xml.hh"
 #include "nix/expr/primops.hh"
 #include "nix/fetchers/fetch-to-store.hh"
+#include "nix/util/mounted-source-accessor.hh"
 
 #include <boost/container/small_vector.hpp>
 #include <nlohmann/json.hpp>
@@ -76,7 +77,10 @@ StringMap EvalState::realiseContext(const NixStringContext & context, StorePathS
                     ensureValid(b.drvPath->getBaseStorePath());
                 },
                 [&](const NixStringContextElem::Opaque & o) {
-                    ensureValid(o.path);
+                    // We consider virtual store paths valid here. They'll
+                    // be devirtualized if needed elsewhere.
+                    if (!storeFS->getMount(CanonPath(store->printStorePath(o.path))))
+                        ensureValid(o.path);
                     if (maybePathsOut)
                         maybePathsOut->emplace(o.path);
                 },
@@ -85,6 +89,9 @@ StringMap EvalState::realiseContext(const NixStringContext & context, StorePathS
                     ensureValid(d.drvPath);
                     if (maybePathsOut)
                         maybePathsOut->emplace(d.drvPath);
+                },
+                [&](const NixStringContextElem::Path & p) {
+                    // FIXME: do something?
                 },
             },
             c.raw);
@@ -1571,6 +1578,10 @@ static void derivationStrictInternal(EvalState & state, const std::string & drvN
     /* Everything in the context of the strings in the derivation
        attributes should be added as dependencies of the resulting
        derivation. */
+    StringMap rewrites;
+
+    std::optional<std::string> drvS;
+
     for (auto & c : context) {
         std::visit(
             overloaded{
@@ -1593,10 +1604,26 @@ static void derivationStrictInternal(EvalState & state, const std::string & drvN
                 [&](const NixStringContextElem::Built & b) {
                     drv.inputDrvs.ensureSlot(*b.drvPath).value.insert(b.output);
                 },
-                [&](const NixStringContextElem::Opaque & o) { drv.inputSrcs.insert(o.path); },
+                [&](const NixStringContextElem::Opaque & o) {
+                    drv.inputSrcs.insert(state.devirtualize(o.path, &rewrites));
+                },
+                [&](const NixStringContextElem::Path & p) {
+                    if (!drvS)
+                        drvS = drv.unparse(*state.store, true);
+                    if (drvS->find(p.storePath.to_string()) != drvS->npos) {
+                        auto devirtualized = state.devirtualize(p.storePath, &rewrites);
+                        warn(
+                            "Using 'builtins.derivation' to create a derivation named '%s' that references the store path '%s' without a proper context. "
+                            "The resulting derivation will not have a correct store reference, so this is unreliable and may stop working in the future.",
+                            drvName,
+                            state.store->printStorePath(devirtualized));
+                    }
+                },
             },
             c.raw);
     }
+
+    drv.applyRewrites(rewrites);
 
     /* Do we have all required attributes? */
     if (drv.builder == "")
@@ -2511,11 +2538,21 @@ static void prim_toFile(EvalState & state, const PosIdx pos, Value ** args, Valu
         state.forceString(*args[1], context, pos, "while evaluating the second argument passed to builtins.toFile"));
 
     StorePathSet refs;
+    StringMap rewrites;
 
     for (auto c : context) {
         if (auto p = std::get_if<NixStringContextElem::Opaque>(&c.raw))
             refs.insert(p->path);
-        else
+        else if (auto p = std::get_if<NixStringContextElem::Path>(&c.raw)) {
+            if (contents.find(p->storePath.to_string()) != contents.npos) {
+                auto devirtualized = state.devirtualize(p->storePath, &rewrites);
+                warn(
+                    "Using 'builtins.toFile' to create a file named '%s' that references the store path '%s' without a proper context. "
+                    "The resulting file will not have a correct store reference, so this is unreliable and may stop working in the future.",
+                    name,
+                    state.store->printStorePath(devirtualized));
+            }
+        } else
             state
                 .error<EvalError>(
                     "files created by %1% may not reference derivations, but %2% references %3%",
@@ -2525,6 +2562,8 @@ static void prim_toFile(EvalState & state, const PosIdx pos, Value ** args, Valu
                 .atPos(pos)
                 .debugThrow();
     }
+
+    contents = rewriteStrings(contents, rewrites);
 
     auto storePath = settings.readOnlyMode ? state.store->makeFixedOutputPathFromCA(
                                                  name,
@@ -2678,6 +2717,7 @@ static void addPath(
                 name, ContentAddressWithReferences::fromParts(method, *expectedHash, {}));
 
         if (!expectedHash || !state.store->isValidPath(*expectedStorePath)) {
+            // FIXME: make this lazy?
             auto dstPath = fetchToStore(
                 state.fetchSettings,
                 *state.store,
@@ -2711,7 +2751,15 @@ static void prim_filterSource(EvalState & state, const PosIdx pos, Value ** args
     state.forceFunction(*args[0], pos, "while evaluating the first argument passed to builtins.filterSource");
 
     addPath(
-        state, pos, path.baseName(), path, args[0], ContentAddressMethod::Raw::NixArchive, std::nullopt, v, context);
+        state,
+        pos,
+        state.computeBaseName(path),
+        path,
+        args[0],
+        ContentAddressMethod::Raw::NixArchive,
+        std::nullopt,
+        v,
+        context);
 }
 
 static RegisterPrimOp primop_filterSource({
