@@ -238,15 +238,15 @@ struct GitArchiveInputScheme : InputScheme
         std::optional<Hash> treeHash;
     };
 
-    virtual RefInfo getRevFromRef(nix::ref<Store> store, const Input & input) const = 0;
-
-    virtual DownloadUrl getDownloadUrl(const Input & input) const = 0;
-
     struct TarballInfo
     {
         Hash treeHash;
         time_t lastModified;
     };
+
+    virtual RefInfo getRevFromRef(nix::ref<Store> store, const Input & input) const = 0;
+
+    virtual DownloadUrl getDownloadUrl(const Input & input) const = 0;
 
     std::pair<Input, TarballInfo> downloadArchive(ref<Store> store, Input input) const
     {
@@ -334,6 +334,13 @@ struct GitArchiveInputScheme : InputScheme
             tarballInfo.treeHash,
             false,
             "«" + input.to_string() + "»");
+
+        if (!input.settings->trustTarballsFromGitForges)
+            // FIXME: computing the NAR hash here is wasteful if
+            // copyInputToStore() is just going to hash/copy it as
+            // well.
+            input.attrs.insert_or_assign("narHash",
+                accessor->hashPath(CanonPath::root).to_string(HashFormat::SRI, true));
 
         return {accessor, input};
     }
