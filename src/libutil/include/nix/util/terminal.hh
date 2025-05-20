@@ -50,9 +50,8 @@ bool shouldANSI(StandardOutputStream fileno = StandardOutputStream::Stderr);
  * included in the character count. Also, tabs are expanded to
  * spaces.
  */
-std::string filterANSIEscapes(std::string_view s,
-    bool filterAll = false,
-    unsigned int width = std::numeric_limits<unsigned int>::max());
+std::string filterANSIEscapes(
+    std::string_view s, bool filterAll = false, unsigned int width = std::numeric_limits<unsigned int>::max());
 
 /**
  * Recalculate the window size, updating a global variable.
