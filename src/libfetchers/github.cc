@@ -325,6 +325,13 @@ struct GitArchiveInputScheme : InputScheme
 
         auto accessor = getTarballCache()->getAccessor(tarballInfo.treeHash, false, "«" + input.to_string() + "»");
 
+        if (!input.settings->trustTarballsFromGitForges)
+            // FIXME: computing the NAR hash here is wasteful if
+            // copyInputToStore() is just going to hash/copy it as
+            // well.
+            input.attrs.insert_or_assign(
+                "narHash", accessor->hashPath(CanonPath::root).to_string(HashFormat::SRI, true));
+
         return {accessor, input};
     }
 
