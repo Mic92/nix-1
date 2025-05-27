@@ -282,7 +282,24 @@ struct S3BinaryCacheStoreImpl : virtual S3BinaryCacheStore
     {
         diskCache = getNarInfoDiskCache();
 
-        init();
+        // Instead of calling init(), we'll directly initialize what's needed
+        // without using virtual methods
+        initNonVirtual();
+    }
+
+    // Non-virtual initialization method to be used during construction
+    void initNonVirtual()
+    {
+        const std::string uri = "s3://" + config->bucketName;
+
+        if (auto cacheInfo = diskCache->upToDateCacheExists(uri)) {
+            config->wantMassQuery.setDefault(cacheInfo->wantMassQuery);
+            config->priority.setDefault(cacheInfo->priority);
+        } else {
+            BinaryCacheStore::init();
+            diskCache->createCache(
+                uri, config->storeDir, config->wantMassQuery, config->priority);
+        }
     }
 
     std::string getUri() override
@@ -292,14 +309,8 @@ struct S3BinaryCacheStoreImpl : virtual S3BinaryCacheStore
 
     void init() override
     {
-        if (auto cacheInfo = diskCache->upToDateCacheExists(getUri())) {
-            config->wantMassQuery.setDefault(cacheInfo->wantMassQuery);
-            config->priority.setDefault(cacheInfo->priority);
-        } else {
-            BinaryCacheStore::init();
-            diskCache->createCache(
-                getUri(), config->storeDir, config->wantMassQuery, config->priority);
-        }
+        // This can now be a thin wrapper around the non-virtual implementation
+        initNonVirtual();
     }
 
     const Stats & getS3Stats() override
