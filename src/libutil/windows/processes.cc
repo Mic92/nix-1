@@ -10,7 +10,6 @@
 #include "nix/util/serialise.hh"
 #include "nix/util/file-system.hh"
 #include "nix/util/util.hh"
-#include "nix/util/windows-error.hh"
 
 #include <cerrno>
 #include <cstdlib>
@@ -24,6 +23,7 @@
 #include <unistd.h>
 
 #ifdef _WIN32
+#include "nix/util/windows-error.hh"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
