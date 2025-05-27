@@ -1,5 +1,6 @@
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/types.h>
 #include <stdlib.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -63,6 +64,9 @@ int main(int argc, char **argv) {
     // Write a new content to the file
     if (ftruncate(smuggling_fd, 0)) perror("ftruncate");
     const char * new_content = "Pwned\n";
-    int written_bytes = write(smuggling_fd, new_content, strlen(new_content));
-    if (written_bytes != strlen(new_content)) perror("write");
+    size_t len = strlen(new_content);
+    ssize_t written_bytes = write(smuggling_fd, new_content, len);
+    if (written_bytes != (ssize_t)len) perror("write");
+    
+    return 0;
 }
