@@ -12,6 +12,7 @@
 #include "nix/expr/eval.hh"
 #include "nix/util/util.hh"
 #include <filesystem>
+#include <limits.h>
 
 #ifdef __linux__
 # include <sys/mount.h>
@@ -222,14 +223,16 @@ void chrootHelper(int argc, char * * argv)
                 createSymlink(readLink(src), dst);
         }
 
-        char * cwd = getcwd(0, 0);
-        if (!cwd) throw SysError("getting current directory");
-        Finally freeCwd([&]() { free(cwd); });
+        // Get current working directory
+        char cwd_buffer[PATH_MAX];
+        if (!getcwd(cwd_buffer, sizeof(cwd_buffer)))
+            throw SysError("getting current directory");
+        std::string_view cwd(cwd_buffer);
 
         if (chroot(tmpDir.c_str()) == -1)
             throw SysError("chrooting into '%s'", tmpDir);
 
-        if (chdir(cwd) == -1)
+        if (chdir(cwd.data()) == -1)
             throw SysError("chdir to '%s' in chroot", cwd);
     } else
         if (mount("overlay", storeDir.c_str(), "overlay", MS_MGC_VAL, fmt("lowerdir=%s:%s", storeDir, realStoreDir).c_str()) == -1)
