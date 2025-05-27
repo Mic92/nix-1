@@ -1265,7 +1265,11 @@ void ExprAttrs::eval(EvalState & state, Env & env, Value & v)
         Env & env2(state.allocEnv(attrs.size()));
         env2.up = &env;
         dynamicEnv = &env2;
-        Env * inheritEnv = inheritFromExprs ? buildInheritFromEnv(state, env2) : nullptr;
+
+        Env * inheritEnv = nullptr;
+        if (inheritFromExprs) {
+            inheritEnv = buildInheritFromEnv(state, env2);
+        }
 
         AttrDefs::iterator overrides = attrs.find(state.sOverrides);
         bool hasOverrides = overrides != attrs.end();
@@ -1307,15 +1311,35 @@ void ExprAttrs::eval(EvalState & state, Env & env, Value & v)
             }
             sort = true;
         }
+
+#if !NIX_USE_BOEHMGC
+        // When not using Boehm GC, we need to free the memory here
+        // We need to do this before entering the dynamicAttrs loop
+        free(inheritEnv);
+#endif
+        // Set to nullptr to avoid any use-after-free
+        inheritEnv = nullptr;
     }
 
     else {
-        Env * inheritEnv = inheritFromExprs ? buildInheritFromEnv(state, env) : nullptr;
+        Env * inheritEnv = nullptr;
+        if (inheritFromExprs) {
+            inheritEnv = buildInheritFromEnv(state, env);
+        }
+
         for (auto & i : attrs)
             bindings.insert(
                 i.first,
                 i.second.e->maybeThunk(state, *i.second.chooseByKind(&env, &env, inheritEnv)),
                 i.second.pos);
+
+#if !NIX_USE_BOEHMGC
+        // When not using Boehm GC, we need to free the memory here
+        // We need to do this before entering the dynamicAttrs loop
+        free(inheritEnv);
+#endif
+        // Set to nullptr to avoid any use-after-free
+        inheritEnv = nullptr;
     }
 
     /* Dynamic attrs apply *after* rec and __overrides. */
@@ -1352,7 +1376,10 @@ void ExprLet::eval(EvalState & state, Env & env, Value & v)
     Env & env2(state.allocEnv(attrs->attrs.size()));
     env2.up = &env;
 
-    Env * inheritEnv = attrs->inheritFromExprs ? attrs->buildInheritFromEnv(state, env2) : nullptr;
+    Env * inheritEnv = nullptr;
+    if (attrs->inheritFromExprs) {
+        inheritEnv = attrs->buildInheritFromEnv(state, env2);
+    }
 
     /* The recursive attributes are evaluated in the new environment,
        while the inherited attributes are evaluated in the original
@@ -1363,6 +1390,13 @@ void ExprLet::eval(EvalState & state, Env & env, Value & v)
             state,
             *i.second.chooseByKind(&env2, &env, inheritEnv));
     }
+
+#if !NIX_USE_BOEHMGC
+    // When not using Boehm GC, we need to free the memory here
+    free(inheritEnv);
+#endif
+    // Set to nullptr to avoid any use-after-free
+    inheritEnv = nullptr;
 
     auto dts = state.debugRepl
         ? makeDebugTraceStacker(
