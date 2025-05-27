@@ -13,6 +13,12 @@
 #  include "nix/util/processes.hh"
 #endif
 
+// Note: When using Boost.Regex, clang-tidy reports warnings of type
+// "clang-analyzer-optin.core.EnumCastOutOfRange" in the Boost headers.
+// This happens because Boost performs bit operations on match_flags enum values
+// that result in values outside the defined enum range.
+//
+// We've disabled this specific warning in the project's .clang-tidy configuration file.
 #include <boost/regex.hpp>
 
 #include <functional>

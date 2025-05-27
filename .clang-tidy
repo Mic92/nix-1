@@ -1,3 +1,7 @@
-# We use pointers to aggregates in a couple of places, intentionally.
-# void * would look weird.
-Checks: '-bugprone-sizeof-expression'
+Checks:
+  # We use pointers to aggregates in a couple of places, intentionally.
+  # void * would look weird.
+  - -bugprone-sizeof-expression
+  # False positive in boost::regex
+  # Maybe fixed by https://github.com/llvm/llvm-project/issues/76208 ?
+  - -clang-analyzer-optin.core.EnumCastOutOfRange'
