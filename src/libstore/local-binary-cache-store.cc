@@ -39,10 +39,16 @@ struct LocalBinaryCacheStore :
         , BinaryCacheStore{*config}
         , config{config}
     {
-        init();
+        // Don't call virtual init() in constructor
     }
 
     void init() override;
+
+    // Called after construction is complete
+    void postConstruct()
+    {
+        init();
+    }
 
     std::string getUri() override
     {
@@ -126,10 +132,15 @@ StringSet LocalBinaryCacheStoreConfig::uriSchemes()
 }
 
 ref<Store> LocalBinaryCacheStoreConfig::openStore() const {
-    return make_ref<LocalBinaryCacheStore>(ref{
+    auto store = make_ref<LocalBinaryCacheStore>(ref{
         // FIXME we shouldn't actually need a mutable config
         std::const_pointer_cast<LocalBinaryCacheStore::Config>(shared_from_this())
     });
+
+    // Initialize the store after construction is complete
+    static_cast<LocalBinaryCacheStore*>(store.get_ptr().get())->postConstruct();
+
+    return store;
 }
 
 static RegisterStoreImplementation<LocalBinaryCacheStore::Config> regLocalBinaryCacheStore;
