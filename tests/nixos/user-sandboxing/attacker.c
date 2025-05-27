@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include <fcntl.h>
 #include <stdio.h>
@@ -6,8 +8,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/syscall.h>
 
+#ifndef SYS_fchmodat2
 #define SYS_fchmodat2 452
+#endif
 
 int fchmodat2(int dirfd, const char *pathname, mode_t mode, int flags) {
   return syscall(SYS_fchmodat2, dirfd, pathname, mode, flags);
