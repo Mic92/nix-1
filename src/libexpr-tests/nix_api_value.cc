@@ -215,38 +215,38 @@ TEST_F(nix_api_expr_test, nix_build_and_init_attr)
     nix_make_attrs(ctx, value, builder);
     nix_bindings_builder_free(builder);
 
-    ASSERT_EQ(2u, nix_get_attrs_size(ctx, value));
+    EXPECT_EQ(2u, nix_get_attrs_size(ctx, value));
 
     nix_value * out_value = nix_get_attr_byname(ctx, value, state, "a");
-    ASSERT_EQ(42, nix_get_int(ctx, out_value));
+    EXPECT_EQ(42, nix_get_int(ctx, out_value));
     nix_gc_decref(ctx, out_value);
 
     out_value = nix_get_attr_byidx(ctx, value, state, 0, out_name);
-    ASSERT_EQ(42, nix_get_int(ctx, out_value));
-    ASSERT_STREQ("a", *out_name);
+    EXPECT_EQ(42, nix_get_int(ctx, out_value));
+    EXPECT_STREQ("a", *out_name);
     nix_gc_decref(ctx, out_value);
 
-    ASSERT_STREQ("a", nix_get_attr_name_byidx(ctx, value, state, 0));
+    EXPECT_STREQ("a", nix_get_attr_name_byidx(ctx, value, state, 0));
 
-    ASSERT_EQ(true, nix_has_attr_byname(ctx, value, state, "b"));
-    ASSERT_EQ(false, nix_has_attr_byname(ctx, value, state, "no-value"));
+    EXPECT_EQ(true, nix_has_attr_byname(ctx, value, state, "b"));
+    EXPECT_EQ(false, nix_has_attr_byname(ctx, value, state, "no-value"));
 
     out_value = nix_get_attr_byname(ctx, value, state, "b");
     std::string string_value;
     nix_get_string(ctx, out_value, OBSERVE_STRING(string_value));
-    ASSERT_STREQ("foo", string_value.c_str());
+    EXPECT_STREQ("foo", string_value.c_str());
     nix_gc_decref(nullptr, out_value);
 
     out_value = nix_get_attr_byidx(ctx, value, state, 1, out_name);
     nix_get_string(ctx, out_value, OBSERVE_STRING(string_value));
-    ASSERT_STREQ("foo", string_value.c_str());
-    ASSERT_STREQ("b", *out_name);
+    EXPECT_STREQ("foo", string_value.c_str());
+    EXPECT_STREQ("b", *out_name);
     nix_gc_decref(nullptr, out_value);
 
-    ASSERT_STREQ("b", nix_get_attr_name_byidx(ctx, value, state, 1));
+    EXPECT_STREQ("b", nix_get_attr_name_byidx(ctx, value, state, 1));
 
-    ASSERT_STREQ("a set", nix_get_typename(ctx, value));
-    ASSERT_EQ(NIX_TYPE_ATTRS, nix_get_type(ctx, value));
+    EXPECT_STREQ("a set", nix_get_typename(ctx, value));
+    EXPECT_EQ(NIX_TYPE_ATTRS, nix_get_type(ctx, value));
 
     // Clean up
     nix_gc_decref(ctx, intValue);
