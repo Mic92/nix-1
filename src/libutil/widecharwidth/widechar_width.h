@@ -1531,7 +1531,7 @@ bool widechar_in_table(const Collection &arr, uint32_t c) {
 }
 
 /* Return the width of character c, or a special negative value. */
-int widechar_wcwidth(uint32_t c) {
+inline int widechar_wcwidth(uint32_t c) {
     if (widechar_in_table(widechar_ascii_table, c))
         return 1;
     if (widechar_in_table(widechar_private_table, c))
