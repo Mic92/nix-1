@@ -1595,6 +1595,42 @@ static void derivationStrictInternal(
 
     printMsg(lvlChatty, "instantiated '%1%' -> '%2%'", drvName, drvPathS);
 
+    /* Log fixed-output derivations if NIX_LOG_FD environment variable is set */
+    static const char* logFdEnv = getenv("NIX_LOG_FD");
+    if (logFdEnv && outputHash) {
+        /* Log as JSON lines */
+        json fodLog = json::object();
+        fodLog["event"] = "fixed-output-derivation";
+        fodLog["derivationName"] = drvName;
+        fodLog["derivationPath"] = drvPathS;
+        fodLog["outputHash"] = *outputHash;
+        if (outputHashAlgo) {
+            fodLog["outputHashAlgo"] = printHashAlgo(*outputHashAlgo);
+        }
+        auto method = ingestionMethod.value_or(ContentAddressMethod::Raw::Flat);
+        fodLog["ingestionMethod"] = 
+            method == ContentAddressMethod::Raw::Flat ? "flat" : 
+            method == ContentAddressMethod::Raw::NixArchive ? "recursive" :
+            method == ContentAddressMethod::Raw::Text ? "text" :
+            method == ContentAddressMethod::Raw::Git ? "git" : "unknown";
+        
+        /* Add output paths */
+        json outputPaths = json::object();
+        for (const auto& [name, output] : drv.outputs) {
+            if (auto* fixed = std::get_if<DerivationOutput::CAFixed>(&output.raw)) {
+                outputPaths[name] = state.store->printStorePath(fixed->path(*state.store, drvName, name));
+            }
+        }
+        fodLog["outputs"] = outputPaths;
+        
+        /* Write JSON line to the specified file descriptor */
+        int fd = std::stoi(logFdEnv);
+        std::string logLine = fodLog.dump() + "\n";
+        if (write(fd, logLine.c_str(), logLine.size()) == -1) {
+            /* Ignore write errors to avoid disrupting the build */
+        }
+    }
+
     /* Optimisation, but required in read-only mode! because in that
        case we don't actually write store derivations, so we can't
        read them later. */
