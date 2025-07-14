@@ -93,6 +93,15 @@ public:
     const Setting<uint64_t> bufferSize{
         this, 5 * 1024 * 1024, "buffer-size", "Size (in bytes) of each part in multi-part uploads."};
 
+    const Setting<bool> requesterPays{
+        this,
+        false,
+        "requester-pays",
+        R"(
+          Whether to enable requester-pays mode for S3 requests. When enabled,
+          the requester (not the bucket owner) pays for data transfer costs.
+        )"};
+
     static const std::string name()
     {
         return "S3 Binary Cache Store";

@@ -17,8 +17,9 @@ struct S3Helper
 {
     ref<Aws::Client::ClientConfiguration> config;
     ref<Aws::S3::S3Client> client;
+    bool requesterPays;
 
-    S3Helper(const std::string & profile, const std::string & region, const std::string & scheme, const std::string & endpoint);
+    S3Helper(const std::string & profile, const std::string & region, const std::string & scheme, const std::string & endpoint, bool requesterPays = false);
 
     ref<Aws::Client::ClientConfiguration> makeConfig(const std::string & region, const std::string & scheme, const std::string & endpoint);
 

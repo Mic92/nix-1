@@ -83,6 +83,17 @@ Your account will need an IAM policy to support uploading to the bucket:
 }
 ```
 
+### Requester-Pays Buckets
+
+To access S3 buckets with [Requester Pays](https://docs.aws.amazon.com/AmazonS3/latest/userguide/RequesterPaysBuckets.html) enabled, you can use the `requester-pays` setting. When enabled, the requester (not the bucket owner) pays for data transfer and request costs:
+
+```console
+$ nix copy nixpkgs.hello \
+  --to 's3://example-nix-cache?requester-pays=true'
+```
+
+Note that requester-pays buckets require authentication - anonymous access is not supported for these buckets.
+
 ### Examples
 
 With bucket policies and authentication set up as described above, uploading works via [`nix copy`](@docroot@/command-ref/new-cli/nix3-copy.md) (experimental).
@@ -99,6 +110,13 @@ With bucket policies and authentication set up as described above, uploading wor
   ```console
   $ nix copy nixpkgs.hello --to \
     's3://example-nix-cache?profile=cache-upload&scheme=https&endpoint=minio.example.com'
+  ```
+
+- To use a requester-pays bucket:
+
+  ```console
+  $ nix copy nixpkgs.hello \
+    --from 's3://example-nix-cache?requester-pays=true&region=us-west-2'
   ```
 
 )"

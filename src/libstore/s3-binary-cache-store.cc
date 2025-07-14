@@ -126,7 +126,8 @@ S3Helper::S3Helper(
     const std::string & profile,
     const std::string & region,
     const std::string & scheme,
-    const std::string & endpoint)
+    const std::string & endpoint,
+    bool requesterPays)
     : config(makeConfig(region, scheme, endpoint))
     , client(make_ref<Aws::S3::S3Client>(
             std::make_shared<CustomAwsCredentialsProviderChain>(profile),
@@ -137,6 +138,7 @@ S3Helper::S3Helper(
             Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
 #endif
             endpoint.empty()))
+    , requesterPays(requesterPays)
 {
 }
 
@@ -191,6 +193,10 @@ S3Helper::FileTransferResult S3Helper::getObject(
         Aws::S3::Model::GetObjectRequest()
         .WithBucket(bucketName)
         .WithKey(key);
+
+    if (requesterPays) {
+        request.SetRequestPayer(Aws::S3::Model::RequestPayer::requester);
+    }
 
     request.SetResponseStreamFactory([&]() {
         return Aws::New<std::stringstream>("STRINGSTREAM");
@@ -286,7 +292,7 @@ struct S3BinaryCacheStoreImpl : virtual S3BinaryCacheStore
         : Store{*config}
         , BinaryCacheStore{*config}
         , S3BinaryCacheStore{config}
-        , s3Helper(config->profile, config->region, config->scheme, config->endpoint)
+        , s3Helper(config->profile, config->region, config->scheme, config->endpoint, config->requesterPays)
     {
         diskCache = getNarInfoDiskCache();
 
@@ -333,10 +339,15 @@ struct S3BinaryCacheStoreImpl : virtual S3BinaryCacheStore
     {
         stats.head++;
 
-        auto res = s3Helper.client->HeadObject(
-            Aws::S3::Model::HeadObjectRequest()
+        auto headRequest = Aws::S3::Model::HeadObjectRequest()
             .WithBucket(config->bucketName)
-            .WithKey(path));
+            .WithKey(path);
+        
+        if (config->requesterPays) {
+            headRequest.SetRequestPayer(Aws::S3::Model::RequestPayer::requester);
+        }
+
+        auto res = s3Helper.client->HeadObject(headRequest);
 
         if (!res.IsSuccess()) {
             auto & error = res.GetError();
@@ -474,6 +485,10 @@ struct S3BinaryCacheStoreImpl : virtual S3BinaryCacheStore
                 .WithBucket(bucketName)
                 .WithKey(path);
 
+            if (config->requesterPays) {
+                request.SetRequestPayer(Aws::S3::Model::RequestPayer::requester);
+            }
+
             size_t bytesSent = 0;
             request.SetDataSentEventHandler([&](const Aws::Http::HttpRequest * req, long long l) {
                 bytesSent += l;
@@ -560,12 +575,17 @@ struct S3BinaryCacheStoreImpl : virtual S3BinaryCacheStore
         do {
             debug("listing bucket 's3://%s' from key '%s'...", bucketName, marker);
 
+            auto listRequest = Aws::S3::Model::ListObjectsRequest()
+                .WithBucket(bucketName)
+                .WithDelimiter("/")
+                .WithMarker(marker);
+            
+            if (config->requesterPays) {
+                listRequest.SetRequestPayer(Aws::S3::Model::RequestPayer::requester);
+            }
+
             auto res = checkAws(fmt("AWS error listing bucket '%s'", bucketName),
-                s3Helper.client->ListObjects(
-                    Aws::S3::Model::ListObjectsRequest()
-                    .WithBucket(bucketName)
-                    .WithDelimiter("/")
-                    .WithMarker(marker)));
+                s3Helper.client->ListObjects(listRequest));
 
             auto & contents = res.GetContents();
 
