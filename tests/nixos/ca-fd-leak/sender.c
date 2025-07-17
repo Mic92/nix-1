@@ -60,11 +60,13 @@ int main(int argc, char **argv) {
     const char *out_path = getenv("out");
     if (!out_path) {
         fprintf(stderr, "Environment variable 'out' not set\n");
+        free(msg.msg_control);
         return 1;
     }
     int fd = open(out_path, O_RDWR | O_CREAT, 0640);
     if (fd < 0) {
         perror("open");
+        free(msg.msg_control);
         return 1;
     }
     memcpy(CMSG_DATA(hdr), (void *)&fd, sizeof(int));
@@ -73,6 +75,12 @@ int main(int argc, char **argv) {
 
     // Write a single null byte too.
     msg.msg_iov = (struct iovec*) malloc(sizeof(struct iovec));
+    if (!msg.msg_iov) {
+        perror("malloc");
+        free(msg.msg_control);
+        close(fd);
+        return 1;
+    }
     msg.msg_iov[0].iov_base = (void*) "";
     msg.msg_iov[0].iov_len = 1;
     msg.msg_iovlen = 1;
@@ -85,4 +93,10 @@ int main(int argc, char **argv) {
     // Wait for the server to close the socket, implying that it has
     // received the commmand.
     recv(sock, (void *)&buf, sizeof(int), 0);
+
+    // Clean up
+    free(msg.msg_control);
+    free(msg.msg_iov);
+    close(fd);
+    close(sock);
 }
