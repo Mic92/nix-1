@@ -374,6 +374,15 @@ extern PathFilter defaultPathFilter;
 bool chmodIfNeeded(const std::filesystem::path & path, mode_t mode, mode_t mask = S_IRWXU | S_IRWXG | S_IRWXO);
 
 /**
+ * Change the permissions of a file or directory.
+ *
+ * @param path Path to change permissions for
+ * @param mode The new permissions mode
+ * @throws SysError if the operation fails
+ */
+void changeFileMode(const std::filesystem::path & path, mode_t mode);
+
+/**
   * @brief A directory iterator that can be used to iterate over the
   * contents of a directory. It is similar to std::filesystem::directory_iterator
   * but throws NixError on failure instead of std::filesystem::filesystem_error.

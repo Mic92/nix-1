@@ -838,4 +838,10 @@ bool chmodIfNeeded(const std::filesystem::path & path, mode_t mode, mode_t mask)
     return true;
 }
 
+void changeFileMode(const std::filesystem::path & path, mode_t mode)
+{
+    if (chmod(path.string().c_str(), mode) == -1)
+        throw SysError("setting permissions on '%s'", path.string());
+}
+
 } // namespace nix
