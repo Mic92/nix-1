@@ -14,6 +14,10 @@ int main(int argc, char **argv) {
     assert(argc == 2);
 
     int sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (sock < 0) {
+        perror("socket");
+        return 1;
+    }
 
     // Set up a abstract domain socket path to connect to.
     struct sockaddr_un data;
@@ -29,13 +33,23 @@ int main(int argc, char **argv) {
             offsetof(struct sockaddr_un, sun_path)
               + strlen(argv[1])
               + 1);
-        if (res < 0 && errno != ECONNREFUSED) perror("connect");
-        if (errno != ECONNREFUSED) break;
+        if (res < 0) {
+            if (errno != ECONNREFUSED) {
+                perror("connect");
+                break;
+            }
+        } else {
+            break;
+        }
     }
 
     // Write our message header.
     struct msghdr msg = {0};
     msg.msg_control = malloc(128);
+    if (!msg.msg_control) {
+        perror("malloc");
+        return 1;
+    }
     msg.msg_controllen = 128;
 
     // Write an SCM_RIGHTS message containing the output path.
@@ -43,7 +57,16 @@ int main(int argc, char **argv) {
     hdr->cmsg_len = CMSG_LEN(sizeof(int));
     hdr->cmsg_level = SOL_SOCKET;
     hdr->cmsg_type = SCM_RIGHTS;
-    int fd = open(getenv("out"), O_RDWR | O_CREAT, 0640);
+    const char *out_path = getenv("out");
+    if (!out_path) {
+        fprintf(stderr, "Environment variable 'out' not set\n");
+        return 1;
+    }
+    int fd = open(out_path, O_RDWR | O_CREAT, 0640);
+    if (fd < 0) {
+        perror("open");
+        return 1;
+    }
     memcpy(CMSG_DATA(hdr), (void *)&fd, sizeof(int));
 
     msg.msg_controllen = CMSG_SPACE(sizeof(int));
