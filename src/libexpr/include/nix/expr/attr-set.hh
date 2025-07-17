@@ -26,7 +26,7 @@ struct Attr
     Value * value;
     Attr(Symbol name, Value * value, PosIdx pos = noPos)
         : name(name), pos(pos), value(value) { };
-    Attr() { };
+    Attr() : name(), pos(), value(nullptr) { };
     auto operator <=> (const Attr & a) const
     {
         return name <=> a.name;
