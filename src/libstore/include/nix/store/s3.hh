@@ -1,7 +1,7 @@
 #pragma once
 ///@file
 #include "store-config-private.hh"
-#if NIX_WITH_S3_SUPPORT
+#ifdef NIX_WITH_S3_SUPPORT
 
 #include "nix/util/ref.hh"
 
