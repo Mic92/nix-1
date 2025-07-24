@@ -89,6 +89,10 @@ Settings::Settings()
     sandboxPaths = tokenizeString<StringSet>("/bin/sh=" SANDBOX_SHELL);
 #endif
 
+#if defined(__linux__) && defined(PASTA_PATH)
+    pastaPath.setDefault(PASTA_PATH);
+#endif
+
     /* chroot-like behavior from Apple's sandbox */
 #ifdef __APPLE__
     sandboxPaths = tokenizeString<StringSet>(

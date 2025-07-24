@@ -1,9 +1,13 @@
 #ifdef __linux__
 
+#  include "nix/store/globals.hh"
 #  include "nix/store/personality.hh"
 #  include "nix/util/cgroup.hh"
+#  include "nix/util/file-system.hh"
 #  include "nix/util/linux-namespaces.hh"
+#  include "nix/util/strings.hh"
 #  include "linux/fchmodat2-compat.hh"
+#  include "pasta.hh"
 
 #  include <sys/ioctl.h>
 #  include <net/if.h>
@@ -202,7 +206,29 @@ struct ChrootLinuxDerivationBuilder : LinuxDerivationBuilder
      */
     std::optional<Path> cgroup;
 
+    /**
+     * Process ID of pasta, if we're using it for network isolation.
+     */
+    Pid pastaPid;
+
+    /**
+     * Whether pasta was started for this build.
+     */
+    bool runPasta = false;
+
     using LinuxDerivationBuilder::LinuxDerivationBuilder;
+
+    ~ChrootLinuxDerivationBuilder()
+    {
+        // pasta being left around mostly happens when builds are aborted
+        if (pastaPid) {
+            try {
+                pasta::killPasta(pastaPid);
+            } catch (Error & e) {
+                // Ignore errors during cleanup
+            }
+        }
+    }
 
     void deleteTmpDir(bool force) override
     {
@@ -559,6 +585,19 @@ struct ChrootLinuxDerivationBuilder : LinuxDerivationBuilder
 
         /* Signal the builder that we've updated its user namespace. */
         writeFull(userNamespaceSync.writeSide.get(), "1");
+
+        /* Set up pasta for network isolation if enabled and this is a fixed-output derivation */
+        bool privateNetwork = derivationType.isSandboxed();
+        runPasta = !privateNetwork && settings.pastaPath != "" && pathExists("/dev/net/tun");
+
+        if (runPasta) {
+            pastaPid = pasta::setupPasta(
+                settings.pastaPath,
+                pid,
+                buildUser ? std::optional(buildUser->getUID()) : std::nullopt,
+                buildUser ? std::optional(buildUser->getGID()) : std::nullopt,
+                usingUserNamespace);
+        }
     }
 
     void enterChroot() override
@@ -569,6 +608,10 @@ struct ChrootLinuxDerivationBuilder : LinuxDerivationBuilder
             throw Error("user namespace initialisation failed");
 
         userNamespaceSync.readSide = -1;
+
+        if (runPasta) {
+            pasta::waitForPastaInterface();
+        }
 
         if (derivationType.isSandboxed()) {
 
@@ -658,8 +701,17 @@ struct ChrootLinuxDerivationBuilder : LinuxDerivationBuilder
                happens when testing Nix building fixed-output derivations
                within a pure derivation. */
             for (auto & path : {"/etc/resolv.conf", "/etc/services", "/etc/hosts"})
-                if (pathExists(path))
-                    ss.push_back(path);
+                if (pathExists(path)) {
+                    // Special handling for resolv.conf when using pasta
+                    if (runPasta && std::string(path) == "/etc/resolv.conf") {
+                        // We'll write a modified version instead of bind-mounting
+                        auto resolvConf = readFile(std::string(path));
+                        auto modifiedResolvConf = pasta::rewriteResolvConf(resolvConf);
+                        writeFile(chrootRootDir + "/etc/resolv.conf", modifiedResolvConf);
+                    } else {
+                        ss.push_back(path);
+                    }
+                }
 
             if (settings.caFile != "") {
                 Path caFile = settings.caFile;
@@ -815,6 +867,10 @@ struct ChrootLinuxDerivationBuilder : LinuxDerivationBuilder
                 buildResult.cpuSystem = stats.cpuSystem;
             }
             return;
+        }
+
+        if (pastaPid) {
+            pasta::killPasta(pastaPid);
         }
 
         DerivationBuilderImpl::killSandbox(getStats);

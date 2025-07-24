@@ -12,6 +12,7 @@
   mercurial,
   util-linux,
   unixtools,
+  passt,
 
   nix-store,
   nix-expr,
@@ -57,6 +58,7 @@ mkMesonDerivation (
         git
         mercurial
         unixtools.script
+        passt
       ]
       ++ lib.optionals stdenv.hostPlatform.isLinux [
         # For various sandboxing tests that needs a statically-linked shell,
