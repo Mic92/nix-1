@@ -1,10 +1,12 @@
 #pragma once
 ///@file
 
-#include <nlohmann/json.hpp>
-
 #include "nix/util/types.hh"
+#include "nix/util/error.hh"
 #include "nix/store/path.hh"
+#include "nix/util/json-utils.hh"
+
+#include <nlohmann/json.hpp>
 
 namespace nix {
 
@@ -18,9 +20,29 @@ struct StructuredAttrs
 {
     static constexpr std::string_view envVarName{"__json"};
 
+private:
+    mutable std::optional<nlohmann::json> parsedJson;
+
+public:
+    std::string rawJson;
+    // For building up JSON during derivation construction
     nlohmann::json structuredAttrs;
 
     bool operator==(const StructuredAttrs &) const = default;
+
+    const nlohmann::json & getStructuredAttrs() const {
+        if (!rawJson.empty() && !parsedJson) {
+            try {
+                parsedJson = nlohmann::json::parse(rawJson);
+            } catch (std::exception & e) {
+                throw Error("cannot process %s attribute: %s", envVarName, e.what());
+            }
+            return *parsedJson;
+        } else if (parsedJson) {
+            return *parsedJson;
+        }
+        return structuredAttrs;
+    }
 
     /**
      * Unconditionally parse from a JSON string. Used by `tryExtract`.
