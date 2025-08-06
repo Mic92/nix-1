@@ -8,7 +8,6 @@
 #include "nix/util/signals.hh"
 #include "nix/util/terminal.hh"
 
-
 #include <algorithm>
 #include <exception>
 #include <iostream>

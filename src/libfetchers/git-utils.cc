@@ -62,7 +62,8 @@ bool operator==(const git_oid & oid1, const git_oid & oid2)
 
 namespace {
 
-int matchesDotPlusGit(const std::string& str) {
+int matchesDotPlusGit(const std::string & str)
+{
     // String must have at least 4 characters (at least one '.' plus "git")
     if (str.size() < 4) {
         return 0;
@@ -80,16 +81,15 @@ int matchesDotPlusGit(const std::string& str) {
     }
 
     // After the dots, check if the remaining string is exactly "git"
-    if ((str.size() == dotCount + 3) &&
-           (str[dotCount] == 'g') &&
-           (str[dotCount + 1] == 'i') &&
-           (str[dotCount + 2] == 't')) {
+    if ((str.size() == dotCount + 3) && (str[dotCount] == 'g') && (str[dotCount + 1] == 'i')
+        && (str[dotCount + 2] == 't')) {
         return dotCount;
     }
     return 0;
 }
 
-std::string escapeDotGit(const std::string& filename) {
+std::string escapeDotGit(const std::string & filename)
+{
     // Check if this filename matches the pattern of dots followed by "git"
     int dotCount = matchesDotPlusGit(filename);
     if (dotCount == 0) {
@@ -103,7 +103,8 @@ std::string escapeDotGit(const std::string& filename) {
     return result;
 }
 
-std::string unescapeDotGit(const std::string filename) {
+std::string unescapeDotGit(const std::string filename)
+{
     // Check if this filename matches the pattern of dots followed by "git"
     int dotCount = matchesDotPlusGit(filename);
     // Ensure dots are even for unescaping (must be divisible by 2)
@@ -119,18 +120,18 @@ std::string unescapeDotGit(const std::string filename) {
     return result;
 }
 
-const git_tree_entry* gitTreebuilderGet(git_treebuilder *bld, std::string name)
+const git_tree_entry * gitTreebuilderGet(git_treebuilder * bld, std::string name)
 {
     auto escapedName = escapeDotGit(name);
     return git_treebuilder_get(bld, escapedName.c_str());
 }
 
-const std::string gitTreeEntryName(const git_tree_entry *entry)
+const std::string gitTreeEntryName(const git_tree_entry * entry)
 {
     auto escapedName = git_tree_entry_name(entry);
     return unescapeDotGit(escapedName);
 }
-}
+} // namespace
 
 namespace nix {
 

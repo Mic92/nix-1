@@ -30,7 +30,8 @@ public:
 
     bool operator==(const StructuredAttrs &) const = default;
 
-    const nlohmann::json & getStructuredAttrs() const {
+    const nlohmann::json & getStructuredAttrs() const
+    {
         if (!rawJson.empty() && !parsedJson) {
             try {
                 parsedJson = nlohmann::json::parse(rawJson);
@@ -47,7 +48,7 @@ public:
     /**
      * Unconditionally parse from a JSON string. Used by `tryExtract`.
      */
-    static StructuredAttrs parse(std::string_view encoded);
+    static StructuredAttrs parse(std::string && encoded);
 
     /**
      * Like `tryParse`, but removes the env var which encoded the structured

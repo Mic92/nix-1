@@ -1538,7 +1538,7 @@ static void derivationStrictInternal(EvalState & state, std::string_view drvName
                         warn(
                             "In derivation '%s': setting structured attributes via '__json' is deprecated, and may be disallowed in future versions of Nix. Set '__structuredAttrs = true' instead.",
                             drvName);
-                        drv.structuredAttrs = StructuredAttrs::parse(s);
+                        drv.structuredAttrs = StructuredAttrs::parse(std::move(s));
                     } else {
                         drv.env.emplace(key, s);
                         if (i->name == state.sBuilder)
