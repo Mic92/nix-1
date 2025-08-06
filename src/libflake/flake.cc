@@ -44,8 +44,7 @@ static StorePath copyInputToStore(
             originalInput.getNarHash()->to_string(HashFormat::SRI, true),
             originalInput.computeStorePath(*state.store).to_string(),
             narHash.to_string(HashFormat::SRI, true),
-            storePath.to_string()
-        );
+            storePath.to_string());
     }
 
     return storePath;

@@ -8,10 +8,10 @@
 
 namespace nix {
 
-StructuredAttrs StructuredAttrs::parse(std::string_view encoded)
+StructuredAttrs StructuredAttrs::parse(std::string && encoded)
 {
     StructuredAttrs result;
-    result.rawJson = std::string(encoded);
+    result.rawJson = std::move(encoded);
     // Don't validate JSON here - delay parsing until first access
     return result;
 }
@@ -23,7 +23,7 @@ std::optional<StructuredAttrs> StructuredAttrs::tryExtract(StringPairs & env)
     if (jsonAttr != env.end()) {
         auto encoded = std::move(jsonAttr->second);
         env.erase(jsonAttr);
-        return parse(encoded);
+        return parse(std::move(encoded));
     } else
         return {};
 }
