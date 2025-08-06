@@ -1401,7 +1401,7 @@ nlohmann::json Derivation::toJSON(const StoreDirConfig & store) const
     res["env"] = env;
 
     if (structuredAttrs)
-        res["structuredAttrs"] = structuredAttrs->structuredAttrs;
+        res["structuredAttrs"] = structuredAttrs->getStructuredAttrs();
 
     return res;
 }
@@ -1470,8 +1470,11 @@ Derivation Derivation::fromJSON(
         throw;
     }
 
-    if (auto structuredAttrs = get(json, "structuredAttrs"))
-        res.structuredAttrs = StructuredAttrs{*structuredAttrs};
+    if (auto structuredAttrs = get(json, "structuredAttrs")) {
+        StructuredAttrs attrs;
+        attrs.rawJson = structuredAttrs->dump();
+        res.structuredAttrs = attrs;
+    }
 
     return res;
 }
