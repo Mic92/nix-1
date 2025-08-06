@@ -474,14 +474,11 @@ Derivation parseDerivation(
         expect(str, '(');
         auto name = parseString(str).toOwned();
         expect(str, ',');
-        auto value = parseString(str);
-        if (name == StructuredAttrs::envVarName) {
-            drv.structuredAttrs = StructuredAttrs::parse(*std::move(value));
-        } else {
-            drv.env.insert_or_assign(std::move(name), std::move(value).toOwned());
-        }
+        auto value = parseString(str).toOwned();
         expect(str, ')');
+        drv.env.insert_or_assign(std::move(name), std::move(value));
     }
+    drv.structuredAttrs = StructuredAttrs::tryExtract(drv.env);
 
     expect(str, ')');
     return drv;
@@ -1077,7 +1074,7 @@ void BasicDerivation::applyRewrites(const StringMap & rewrites)
         // TODO rewrite the JSON AST properly, rather than dump parse round trip.
         auto [_, jsonS] = structuredAttrs->unparse();
         jsonS = rewriteStrings(std::move(jsonS), rewrites);
-        structuredAttrs = StructuredAttrs::parse(jsonS);
+        structuredAttrs = StructuredAttrs::parse(std::move(jsonS));
     }
 }
 
@@ -1401,7 +1398,7 @@ nlohmann::json Derivation::toJSON(const StoreDirConfig & store) const
     res["env"] = env;
 
     if (structuredAttrs)
-        res["structuredAttrs"] = structuredAttrs->structuredAttrs;
+        res["structuredAttrs"] = structuredAttrs->getStructuredAttrs();
 
     return res;
 }
@@ -1470,8 +1467,11 @@ Derivation Derivation::fromJSON(
         throw;
     }
 
-    if (auto structuredAttrs = get(json, "structuredAttrs"))
-        res.structuredAttrs = StructuredAttrs{*structuredAttrs};
+    if (auto structuredAttrs = get(json, "structuredAttrs")) {
+        StructuredAttrs attrs;
+        attrs.rawJson = structuredAttrs->dump();
+        res.structuredAttrs = attrs;
+    }
 
     return res;
 }
