@@ -17,8 +17,8 @@ static std::optional<std::string>
 getStringAttr(const StringMap & env, const StructuredAttrs * parsed, const std::string & name)
 {
     if (parsed) {
-        auto i = parsed->structuredAttrs.find(name);
-        if (i == parsed->structuredAttrs.end())
+        auto i = parsed->getStructuredAttrs().find(name);
+        if (i == parsed->getStructuredAttrs().end())
             return {};
         else {
             if (!i->is_string())
@@ -37,8 +37,8 @@ getStringAttr(const StringMap & env, const StructuredAttrs * parsed, const std::
 static bool getBoolAttr(const StringMap & env, const StructuredAttrs * parsed, const std::string & name, bool def)
 {
     if (parsed) {
-        auto i = parsed->structuredAttrs.find(name);
-        if (i == parsed->structuredAttrs.end())
+        auto i = parsed->getStructuredAttrs().find(name);
+        if (i == parsed->getStructuredAttrs().end())
             return def;
         else {
             if (!i->is_boolean())
@@ -58,8 +58,8 @@ static std::optional<Strings>
 getStringsAttr(const StringMap & env, const StructuredAttrs * parsed, const std::string & name)
 {
     if (parsed) {
-        auto i = parsed->structuredAttrs.find(name);
-        if (i == parsed->structuredAttrs.end())
+        auto i = parsed->getStructuredAttrs().find(name);
+        if (i == parsed->getStructuredAttrs().end())
             return {};
         else {
             if (!i->is_array())
@@ -104,27 +104,27 @@ DerivationOptions::fromStructuredAttrs(const StringMap & env, const StructuredAt
     DerivationOptions defaults = {};
 
     if (shouldWarn && parsed) {
-        if (get(parsed->structuredAttrs, "allowedReferences")) {
+        if (get(parsed->getStructuredAttrs(), "allowedReferences")) {
             warn(
                 "'structuredAttrs' disables the effect of the top-level attribute 'allowedReferences'; use 'outputChecks' instead");
         }
-        if (get(parsed->structuredAttrs, "allowedRequisites")) {
+        if (get(parsed->getStructuredAttrs(), "allowedRequisites")) {
             warn(
                 "'structuredAttrs' disables the effect of the top-level attribute 'allowedRequisites'; use 'outputChecks' instead");
         }
-        if (get(parsed->structuredAttrs, "disallowedRequisites")) {
+        if (get(parsed->getStructuredAttrs(), "disallowedRequisites")) {
             warn(
                 "'structuredAttrs' disables the effect of the top-level attribute 'disallowedRequisites'; use 'outputChecks' instead");
         }
-        if (get(parsed->structuredAttrs, "disallowedReferences")) {
+        if (get(parsed->getStructuredAttrs(), "disallowedReferences")) {
             warn(
                 "'structuredAttrs' disables the effect of the top-level attribute 'disallowedReferences'; use 'outputChecks' instead");
         }
-        if (get(parsed->structuredAttrs, "maxSize")) {
+        if (get(parsed->getStructuredAttrs(), "maxSize")) {
             warn(
                 "'structuredAttrs' disables the effect of the top-level attribute 'maxSize'; use 'outputChecks' instead");
         }
-        if (get(parsed->structuredAttrs, "maxClosureSize")) {
+        if (get(parsed->getStructuredAttrs(), "maxClosureSize")) {
             warn(
                 "'structuredAttrs' disables the effect of the top-level attribute 'maxClosureSize'; use 'outputChecks' instead");
         }
@@ -134,7 +134,7 @@ DerivationOptions::fromStructuredAttrs(const StringMap & env, const StructuredAt
         .outputChecks = [&]() -> OutputChecksVariant {
             if (parsed) {
                 std::map<std::string, OutputChecks> res;
-                if (auto outputChecks = get(parsed->structuredAttrs, "outputChecks")) {
+                if (auto outputChecks = get(parsed->getStructuredAttrs(), "outputChecks")) {
                     for (auto & [outputName, output] : getObject(*outputChecks)) {
                         OutputChecks checks;
 
@@ -183,7 +183,7 @@ DerivationOptions::fromStructuredAttrs(const StringMap & env, const StructuredAt
                 std::map<std::string, bool> res;
 
                 if (parsed) {
-                    if (auto udr = get(parsed->structuredAttrs, "unsafeDiscardReferences")) {
+                    if (auto udr = get(parsed->getStructuredAttrs(), "unsafeDiscardReferences")) {
                         for (auto & [outputName, output] : getObject(*udr)) {
                             if (!output.is_boolean())
                                 throw Error("attribute 'unsafeDiscardReferences.\"%s\"' must be a Boolean", outputName);
@@ -214,7 +214,7 @@ DerivationOptions::fromStructuredAttrs(const StringMap & env, const StructuredAt
                 std::map<std::string, StringSet> ret;
 
                 if (parsed) {
-                    auto e = optionalValueAt(parsed->structuredAttrs, "exportReferencesGraph");
+                    auto e = optionalValueAt(parsed->getStructuredAttrs(), "exportReferencesGraph");
                     if (!e || !e->is_object())
                         return ret;
                     for (auto & [key, value] : getObject(*e)) {

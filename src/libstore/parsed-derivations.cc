@@ -8,15 +8,12 @@
 
 namespace nix {
 
-StructuredAttrs StructuredAttrs::parse(std::string_view encoded)
+StructuredAttrs StructuredAttrs::parse(std::string && encoded)
 {
-    try {
-        return StructuredAttrs{
-            .structuredAttrs = nlohmann::json::parse(encoded),
-        };
-    } catch (std::exception & e) {
-        throw Error("cannot process %s attribute: %s", envVarName, e.what());
-    }
+    StructuredAttrs result;
+    result.rawJson = std::move(encoded);
+    // Don't validate JSON here - delay parsing until first access
+    return result;
 }
 
 std::optional<StructuredAttrs> StructuredAttrs::tryExtract(StringPairs & env)
@@ -26,14 +23,14 @@ std::optional<StructuredAttrs> StructuredAttrs::tryExtract(StringPairs & env)
     if (jsonAttr != env.end()) {
         auto encoded = std::move(jsonAttr->second);
         env.erase(jsonAttr);
-        return parse(encoded);
+        return parse(std::move(encoded));
     } else
         return {};
 }
 
 std::pair<std::string_view, std::string> StructuredAttrs::unparse() const
 {
-    return {envVarName, structuredAttrs.dump()};
+    return {envVarName, rawJson.empty() ? getStructuredAttrs().dump() : rawJson};
 }
 
 void StructuredAttrs::checkKeyNotInUse(const StringPairs & env)
@@ -104,7 +101,7 @@ nlohmann::json StructuredAttrs::prepareStructuredAttrs(
     const DerivationOutputs & outputs) const
 {
     /* Copy to then modify */
-    auto json = structuredAttrs;
+    auto json = getStructuredAttrs();
 
     /* Add an "outputs" object containing the output paths. */
     nlohmann::json outputsJson;
