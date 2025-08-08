@@ -44,49 +44,31 @@ namespace nix {
 // getting the position is expensive and thus it is implemented lazily.
 static StringToken unescapeStr(char * const s, size_t length, std::function<Pos()> && pos)
 {
-    std::string_view str{s, length};
-    if (length == 0) {
-        return {"", 0};
-    }
-    size_t start = 0; // string is finalized until this index
-    size_t offset = 0;
-    auto nextBackslash = str.find('\\', start);
-    auto nextCR = str.find('\r', start);
-    auto next = nextCR;
+    bool noNullByte = true;
+    char * t = s;
     // the input string is terminated with *two* NULs, so we can safely take
     // *one* character after the one being checked against.
-    while (nextBackslash != nextCR) {
-        bool hasBackslash = nextBackslash != std::string_view::npos;
-        bool hasCR = nextCR != std::string_view::npos;
-        bool skipChar = true;
-        if (!hasBackslash || hasCR && nextCR < nextBackslash) {
+    for (size_t i = 0; i < length; t++) {
+        char c = s[i++];
+        noNullByte &= c != '\0';
+        if (c == '\\') {
+            c = s[i++];
+            if (c == 'n') *t = '\n';
+            else if (c == 'r') *t = '\r';
+            else if (c == 't') *t = '\t';
+            else *t = c;
+        }
+        else if (c == '\r') {
             /* Normalise CR and CR/LF into LF. */
-            s[nextCR] = '\n';
-            skipChar = s[nextCR + 1] == '\n';  /* cr/lf */
-            next = nextCR + 2; // ignored when skipChar == false
-            nextCR = str.find('\r', nextCR + 1); // search might start at a '\n' here
-        } else {
-            char c = s[nextBackslash + 1];
-            if (c == 'n') s[nextBackslash] = '\n';
-            else if (c == 'r') s[nextBackslash] = '\r';
-            else if (c == 't') s[nextBackslash] = '\t';
-            else s[nextBackslash] = c;
-            next = nextBackslash + 2;
-            nextBackslash = str.find('\\', nextBackslash + 2);
+            *t = '\n';
+            if (s[i] == '\n') i++; /* cr/lf */
         }
-        if (skipChar) {
-            if (offset && next + 1 > start) {
-                memmove(s + start - offset, s + start, next + 1 - start);
-            }
-            start = next;
-            offset++;
-        }
+        else *t = c;
     }
-    if (offset && length > start) {
-        memmove(s + start - offset, s + start, length - start);
+    if (!noNullByte) {
+        forceNoNullByte({s, size_t(t - s)}, std::move(pos));
     }
-    forceNoNullByte({s, length - offset}, std::move(pos));
-    return {s, length - offset};
+    return {s, size_t(t - s)};
 }
 
 static void requireExperimentalFeature(const ExperimentalFeature & feature, const Pos & pos)
