@@ -44,31 +44,58 @@ namespace nix {
 // getting the position is expensive and thus it is implemented lazily.
 static StringToken unescapeStr(char * const s, size_t length, std::function<Pos()> && pos)
 {
-    bool noNullByte = true;
-    char * t = s;
-    // the input string is terminated with *two* NULs, so we can safely take
-    // *one* character after the one being checked against.
-    for (size_t i = 0; i < length; t++) {
-        char c = s[i++];
-        noNullByte &= c != '\0';
-        if (c == '\\') {
-            c = s[i++];
-            if (c == 'n') *t = '\n';
-            else if (c == 'r') *t = '\r';
-            else if (c == 't') *t = '\t';
-            else *t = c;
-        }
-        else if (c == '\r') {
-            /* Normalise CR and CR/LF into LF. */
-            *t = '\n';
-            if (s[i] == '\n') i++; /* cr/lf */
-        }
-        else *t = c;
+    if (length == 0) {
+        return {s, 0};
     }
-    if (!noNullByte) {
-        forceNoNullByte({s, size_t(t - s)}, std::move(pos));
+
+    char * write = s;
+    size_t i = 0;
+    bool hasNullByte = false;
+
+    // Find first special character
+    while (i < length) {
+        // Scan for special characters
+        size_t start = i;
+        while (i < length && s[i] != '\\' && s[i] != '\r' && s[i] != '\0') {
+            i++;
+        }
+
+        // Copy normal chunk if needed
+        size_t chunk_len = i - start;
+        if (chunk_len > 0 && write != s + start) {
+            memmove(write, s + start, chunk_len);
+        }
+        write += chunk_len;
+
+        // Process special character if found
+        if (i < length) {
+            char c = s[i++];
+
+            if (c == '\0') {
+                hasNullByte = true;
+                *write++ = c;
+            }
+            else if (c == '\\' && i < length) {
+                char next = s[i++];
+                switch (next) {
+                    case 'n': *write++ = '\n'; break;
+                    case 'r': *write++ = '\r'; break;
+                    case 't': *write++ = '\t'; break;
+                    default: *write++ = next; break;
+                }
+            }
+            else if (c == '\r') {
+                *write++ = '\n';
+                if (i < length && s[i] == '\n') i++;
+            }
+        }
     }
-    return {s, size_t(t - s)};
+
+    size_t result_length = write - s;
+    if (hasNullByte) {
+        forceNoNullByte({s, result_length}, std::move(pos));
+    }
+    return {s, result_length};
 }
 
 static void requireExperimentalFeature(const ExperimentalFeature & feature, const Pos & pos)
