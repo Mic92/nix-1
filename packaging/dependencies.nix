@@ -29,7 +29,9 @@ let
   # NOTE: this is not just a version constraint, but a request to make Darwin
   #       provide this version level of support. Removing this minimum version
   #       request will regress the above error.
-  darwinStdenv = pkgs.overrideSDK prevStdenv { darwinMinVersion = "10.13"; };
+  darwinStdenv = prevStdenv.override (old: {
+    extraNativeBuildInputs = (old.extraNativeBuildInputs or [ ]) ++ [ (pkgs.darwinMinVersionHook "10.13") ];
+  });
 
 in
 scope: {
