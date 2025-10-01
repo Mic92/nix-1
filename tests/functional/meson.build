@@ -142,6 +142,7 @@ suites = [
       'flamegraph-profiler.sh',
       'eval-store.sh',
       'why-depends.sh',
+      'write-file.sh',
       'derivation-json.sh',
       'derivation-advanced-attributes.sh',
       'import-from-derivation.sh',
