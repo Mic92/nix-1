@@ -1,5 +1,7 @@
 # Nix
 
+test
+
 [![Open Collective supporters](https://opencollective.com/nixos/tiers/supporter/badge.svg?label=Supporters&color=brightgreen)](https://opencollective.com/nixos)
 [![CI](https://github.com/NixOS/nix/workflows/CI/badge.svg)](https://github.com/NixOS/nix/actions/workflows/ci.yml)
 
