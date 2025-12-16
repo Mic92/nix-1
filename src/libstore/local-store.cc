@@ -598,14 +598,15 @@ void LocalStore::upgradeDBSchema(State & state)
                     "20251013-remove-realisations-refs",
                 });
         } else if (!schemaMigrations.contains("20251013-remove-realisations-refs")) {
-            /* CA drvs previously enabled with old schema. */
-            throw Error(
-                "Migrating the database schema for the '%s' experimental feature is not yet supported.\n\n"
-                "Either downgrade Nix to a version that supports the old schema, "
-                "or disable the '%s' experimental feature.\n\n"
-                "Note: Disabling the experimental feature will safely leave all existing data intact.",
-                showExperimentalFeature(Xp::CaDerivations),
-                showExperimentalFeature(Xp::CaDerivations));
+            /* CA drvs previously enabled with old schema. The new code no
+               longer uses the RealisationsRefs table, but we keep it around
+               for backwards compatibility with older Nix versions that may
+               still share this database. They will continue to populate it,
+               but we simply ignore it. */
+            debug("executing Nix database schema migration '%s'...", "20251013-remove-realisations-refs");
+
+            SQLiteTxn txn(state.db);
+            commitAndMarkMigrations(txn, {"20251013-remove-realisations-refs"});
         }
     }
 }
