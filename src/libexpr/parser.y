@@ -337,13 +337,10 @@ expr_simple
            state->exprs.add<ExprString>(state->exprs.alloc, path)});
   }
   | URI {
-      static bool noURLLiterals = experimentalFeatureSettings.isEnabled(Xp::NoUrlLiterals);
-      if (noURLLiterals)
-          throw ParseError({
-              .msg = HintFmt("URL literals are disabled"),
-              .pos = state->positions[CUR_POS]
-          });
-      $$ = state->exprs.add<ExprString>(state->exprs.alloc, $1);
+      throw ParseError({
+          .msg = HintFmt("URL literals are disabled"),
+          .pos = state->positions[CUR_POS]
+      });
   }
   | '(' expr ')' { $$ = $2; }
   /* Let expressions `let {..., body = ...}' are just desugared
