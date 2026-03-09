@@ -91,6 +91,23 @@ configdata_priv.set(
 
 deps_other += toml11
 
+# Cargo workspace resolver — Rust static library providing the
+# builtins.resolveCargoWorkspace primop implementation.
+# Set this to the directory containing libcargo_nix_plugin_core.a to enable.
+# When using appendPatches, apply a second patch that replaces '' with the
+# actual store path of the Rust static library.
+cargo_resolve_lib_dir = ''
+if cargo_resolve_lib_dir != ''
+  cargo_resolve_dep = declare_dependency(
+    link_args : [
+      '-L' + cargo_resolve_lib_dir,
+      '-lcargo_nix_plugin_core',
+    ],
+  )
+  deps_other += cargo_resolve_dep
+  configdata_priv.set('HAVE_CARGO_RESOLVE', 1)
+endif
+
 config_priv_h = configure_file(
   configuration : configdata_priv,
   output : 'expr-config-private.hh',
