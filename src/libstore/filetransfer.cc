@@ -676,6 +676,12 @@ struct curlFileTransfer : public FileTransfer
                 } else if (httpStatus == 429) {
                     // 429 means too many requests, so we retry (with a substantially longer delay)
                     retryTimeMs = RETRY_TIME_MS_TOO_MANY_REQUESTS;
+                } else if (httpStatus == 400 && errorSink
+                           && errorSink->s.find("<Code>RequestTimeout</Code>") != std::string::npos) {
+                    // S3 returns HTTP 400 with an XML body containing
+                    // <Code>RequestTimeout</Code> when idle connections
+                    // are reused.  The AWS SDK treats this as retryable;
+                    // match that behaviour here.
                 } else if (httpStatus >= 400 && httpStatus < 500 && httpStatus != 408) {
                     // Most 4xx errors are client errors and are probably not worth retrying:
                     //   * 408 means the server timed out waiting for us, so we try again
