@@ -39,7 +39,17 @@
           };
           meson-format =
             let
-              meson = pkgs.meson.overrideAttrs {
+              # Pin meson to 1.9.1 to match upstream NixOS/nix formatting.
+              # The mformat patch below is not yet in 1.9.1 but landed in 1.10.
+              # Remove this override once upstream bumps nixpkgs past meson 1.10.
+              meson = pkgs.meson.overrideAttrs (old: {
+                version = "1.9.1";
+                src = pkgs.fetchFromGitHub {
+                  owner = "mesonbuild";
+                  repo = "meson";
+                  tag = "1.9.1";
+                  hash = "sha256-t4a/Zp8rC+DMjskdwVvYIfYDAT57zGVfVu7IApwRNGA=";
+                };
                 doCheck = false;
                 doInstallCheck = false;
                 patches = [
@@ -48,7 +58,7 @@
                     hash = "sha256-PgPBvGtCISKn1qQQhzBW5XfknUe91i5XGGBcaUK4yeE=";
                   })
                 ];
-              };
+              });
             in
             {
               enable = true;
