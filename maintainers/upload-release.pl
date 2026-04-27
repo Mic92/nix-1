@@ -64,7 +64,7 @@ my $evalInfo = decode_json(fetch($evalUrl, 'application/json'));
 #print Dumper($evalInfo);
 my $flakeUrl = $evalInfo->{flake};
 my $flakeInfo = decode_json(`nix flake metadata --json "$flakeUrl"` or die) if $flakeUrl;
-my $nixRev = ($flakeInfo ? $flakeInfo->{revision} : $evalInfo->{jobsetevalinputs}->{nix}->{revision}) or die;
+my $nixRev = ($flakeInfo ? $flakeInfo->{revision} : $evalInfo->{jobsetevalinputs}->{src}->{revision}) or die "cannot determine Nix revision from eval $evalId";
 
 my $buildInfo = decode_json(fetch("$evalUrl/job/build.nix-everything.x86_64-linux", 'application/json'));
 #print Dumper($buildInfo);
