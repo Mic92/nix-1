@@ -379,7 +379,6 @@ void LocalStore::collectGarbage(const GCOptions & options, GCResults & results, 
 
     bool shouldDelete = options.action == GCOptions::gcDeleteDead || options.action == GCOptions::gcDeleteSpecific;
     auto maxFreed = options.maxFreed;
-    bool reservedPathDeleted = false;
 
     boost::unordered_flat_set<StorePath, std::hash<StorePath>> roots, dead, alive;
 
@@ -406,48 +405,42 @@ void LocalStore::collectGarbage(const GCOptions & options, GCResults & results, 
 
     std::condition_variable wakeup;
 
-    if (shouldDelete && gcTrigger == GCTrigger::Explicit) {
+    /* Auto-GC keeps the reserve until the post-lock recheck confirms
+       GC is still needed. */
+    if (shouldDelete && gcTrigger == GCTrigger::Explicit)
         deletePath(reservedPath);
-        reservedPathDeleted = true;
-    }
 
     /* Acquire the global GC root. Note: we don't use fdGCLock
        here because then in auto-gc mode, another thread could
        downgrade our exclusive lock. */
-    auto openGCLockForGC = [&]() {
-        try {
-            return openGCLock();
-        } catch (SystemError & e) {
-            if (gcTrigger != GCTrigger::Auto || !shouldDelete || reservedPathDeleted
-                || !e.is(std::errc::no_space_on_device))
-                throw;
-
-            /* Preserve the historical emergency reserve behavior if the
-               GC lock file itself cannot be opened or created. Normal
-               auto-GC still keeps the reserve until the post-lock free-space
-               check confirms that GC is still needed. */
-            deletePath(reservedPath);
-            reservedPathDeleted = true;
-            return openGCLock();
-        }
-    };
-    auto fdGCLock = openGCLockForGC();
+    AutoCloseFD fdGCLock;
+    try {
+        fdGCLock = openGCLock();
+    } catch (SystemError & e) {
+        if (gcTrigger != GCTrigger::Auto || !e.is(std::errc::no_space_on_device))
+            throw;
+        /* Not even enough space to create the lock file: free the
+           reserve now instead of waiting for the post-lock recheck. */
+        deletePath(reservedPath);
+        fdGCLock = openGCLock();
+    }
     FdLock gcLock(fdGCLock.get(), ltWrite, true, "waiting for the big garbage collector lock...");
 
 #if HAVE_STATVFS
     if (gcTrigger == GCTrigger::Auto) {
+        /* Another GC may have freed enough space while we waited;
+           recheck to avoid a redundant traversal. */
         auto avail = getAvailableStoreSpace(*config);
         if (avail >= gcSettings.minFree || avail >= gcSettings.maxFree) {
             printInfo("skipping auto-GC because available space is now %s", renderSize(avail));
             return;
         }
-
         maxFreed = gcSettings.maxFree - avail;
         printInfo("continuing auto-GC to free %d bytes", maxFreed);
     }
 #endif
 
-    if (shouldDelete && gcTrigger == GCTrigger::Auto && !reservedPathDeleted)
+    if (shouldDelete && gcTrigger == GCTrigger::Auto)
         deletePath(reservedPath);
 
     /* Synchronisation point to test ENOENT handling in
