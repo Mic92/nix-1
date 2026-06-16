@@ -6,7 +6,9 @@
 #include "nix/expr/symbol-table.hh"
 #include "nix/expr/value.hh"
 #include "nix/util/exit.hh"
+#include "nix/util/file-system.hh"
 #include "nix/util/signals.hh"
+#include "nix/util/tracing-source-accessor.hh"
 #include "nix/util/types.hh"
 #include "nix/util/util.hh"
 #include "nix/util/environment-variables.hh"
@@ -244,6 +246,7 @@ EvalState::EvalState(
     , settings{settings}
     , symbols(StaticEvalSymbols::staticSymbolTable())
     , repair(NoRepair)
+    , fileAccessTrace(make_ref<FileAccessTrace>())
     , storeFS(makeMountedSourceAccessor({
           {CanonPath::root, makeEmptySourceAccessor()},
           /* In the pure eval case, we can simply require
@@ -289,6 +292,15 @@ EvalState::EvalState(
                                                              : "in restricted mode";
                     throw RestrictedPathError("access to absolute path '%1%' is forbidden %2%", path, modeInformation);
                 });
+
+        /* Record every access for `$NIX_DUMP_FILE_ACCESS`. Outermost
+           so it sees exactly what the evaluator sees, after
+           caching/allow-list filtering. Gated on the env var: the
+           wrapper sees every `resolveSymlinks` component and every
+           file under a `${./tree}` copy, which is a lot to record
+           for nothing when nobody asked. */
+        if (getEnv("NIX_DUMP_FILE_ACCESS"))
+            accessor = makeTracingSourceAccessor(accessor, fileAccessTrace);
 
         return accessor;
     }())
@@ -3034,6 +3046,8 @@ bool Counter::enabled = getEnv("NIX_SHOW_STATS").value_or("0") != "0";
 
 void EvalState::maybePrintStats()
 {
+    maybeDumpFileAccessTrace();
+
     if (Counter::enabled) {
         // Make the final heap size more deterministic.
 #if NIX_USE_BOEHMGC
@@ -3043,6 +3057,24 @@ void EvalState::maybePrintStats()
 #endif
         printStatistics();
     }
+}
+
+void EvalState::maybeDumpFileAccessTrace()
+{
+    auto outPath = getEnv("NIX_DUMP_FILE_ACCESS");
+    if (!outPath)
+        return;
+
+    auto st(fileAccessTrace->state.lock());
+
+    json j{
+        {"files", st->files},
+        {"dirs", st->dirs},
+        {"trees", st->trees},
+        {"env", st->env},
+    };
+    /* Paths are raw OS bytes, not guaranteed UTF-8. */
+    writeFile(*outPath, j.dump(2, ' ', false, json::error_handler_t::replace) + "\n");
 }
 
 void EvalState::printStatistics()

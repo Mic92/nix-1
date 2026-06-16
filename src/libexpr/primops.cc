@@ -11,6 +11,7 @@
 #include "nix/store/path-references.hh"
 #include "nix/store/store-api.hh"
 #include "nix/util/mounted-source-accessor.hh"
+#include "nix/util/tracing-source-accessor.hh"
 #include "nix/util/util.hh"
 #include "nix/util/os-string.hh"
 #include "nix/util/processes.hh"
@@ -1246,7 +1247,9 @@ static void prim_getEnv(EvalState & state, const PosIdx pos, Value ** args, Valu
 {
     std::string name(
         state.forceStringNoCtx(*args[0], pos, "while evaluating the first argument passed to builtins.getEnv"));
-    v.mkString(state.settings.restrictEval || state.settings.pureEval ? "" : getEnv(name).value_or(""), state.mem);
+    std::string res = state.settings.restrictEval || state.settings.pureEval ? "" : getEnv(name).value_or("");
+    state.fileAccessTrace->state.lock()->env.emplace(name, res);
+    v.mkString(res, state.mem);
 }
 
 static RegisterPrimOp primop_getEnv({
