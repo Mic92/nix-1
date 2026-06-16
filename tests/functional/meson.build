@@ -113,6 +113,7 @@ suites = [
       'nar-access.sh',
       'impure-eval.sh',
       'pure-eval.sh',
+      'dump-file-access.sh',
       'eval.sh',
       'short-path-literals.sh',
       'absolute-path-literals.sh',

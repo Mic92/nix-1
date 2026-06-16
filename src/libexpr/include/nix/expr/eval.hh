@@ -30,6 +30,8 @@
 
 namespace nix {
 
+struct FileAccessTrace;
+
 /**
  * We put a limit on primop arity because it lets us use a fixed size array on
  * the stack. 8 is already an impractical number of arguments. Use an attrset
@@ -372,6 +374,13 @@ public:
      * already exist there.
      */
     RepairFlag repair;
+
+    /**
+     * Record of every filesystem path the evaluator touched through
+     * `rootFS`, plus `builtins.getEnv` reads. See
+     * `maybeDumpFileAccessTrace()`.
+     */
+    const ref<FileAccessTrace> fileAccessTrace;
 
     /**
      * The accessor corresponding to `store`.
@@ -1011,6 +1020,13 @@ public:
      * Print statistics, unconditionally, cheaply, without performing a GC first.
      */
     void printStatistics();
+
+    /**
+     * Write `fileAccessTrace` as JSON to `$NIX_DUMP_FILE_ACCESS` if set.
+     * Called from `maybePrintStats()` so every frontend that already
+     * reports stats also dumps the trace.
+     */
+    void maybeDumpFileAccessTrace();
 
     /**
      * Perform a full memory garbage collection - not incremental.

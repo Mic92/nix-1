@@ -176,6 +176,7 @@ sources = [ config_priv_h ] + files(
   'tee-logger.cc',
   'terminal.cc',
   'thread-pool.cc',
+  'tracing-source-accessor.cc',
   'union-source-accessor.cc',
   'unix-domain-socket.cc',
   'url.cc',
