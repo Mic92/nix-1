@@ -28,6 +28,13 @@ void rethrowExceptionAsError();
 void handleChildException(bool sendException);
 
 /**
+ * Exit status with which an external builder declines a build, asking
+ * Nix to build it locally instead (used when no remote worker can serve
+ * the derivation's system).
+ */
+constexpr int externalBuilderDeclinedExitCode = 222;
+
+/**
  * Denotes a build failure that stemmed from the builder exiting with a
  * failing exist status.
  */

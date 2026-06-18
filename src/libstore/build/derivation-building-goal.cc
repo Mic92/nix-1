@@ -22,6 +22,9 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <unistd.h>
+#ifndef _WIN32
+#  include <sys/wait.h>
+#endif
 
 #include <nlohmann/json.hpp>
 
@@ -1052,6 +1055,30 @@ Goal::Co DerivationBuildingGoal::buildLocally(
         builtOutputs = builder->unprepareBuild();
     } catch (BuilderFailureError & e) {
         builder.reset();
+
+        /* External builder declined; build locally if this host can. */
+        if (localBuildCap.externalBuilder && WIFEXITED(e.builderStatus)
+            && WEXITSTATUS(e.builderStatus) == externalBuilderDeclinedExitCode) {
+            bool platformOk = drv->platform == settings.thisSystem.get()
+                              || settings.extraPlatforms.get().count(drv->platform) || drv->isBuiltin();
+            auto required = drvOptions.getRequiredSystemFeatures(*drv);
+            auto & available = worker.store.config.systemFeatures.get();
+            bool featuresOk =
+                std::ranges::all_of(required, [&](const std::string & f) { return available.count(f); });
+            if (worker.settings.maxBuildJobs.get() != 0 && platformOk && featuresOk) {
+                debug(
+                    "external builder declined '%s'; falling back to a local build",
+                    worker.store.printStorePath(drvPath));
+                localBuildCap.externalBuilder = nullptr;
+                co_return buildLocally(
+                    std::move(localBuildCap),
+                    std::move(inputPaths),
+                    std::move(initialOutputs),
+                    std::move(drvOptions),
+                    std::move(outputLocks));
+            }
+        }
+
         outputLocks.unlock();
         co_return doneFailure(fixupBuilderFailureErrorMessage(std::move(e), *buildLog));
     } catch (BuildError & e) {
