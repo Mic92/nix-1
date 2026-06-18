@@ -27,6 +27,9 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <unistd.h>
+#ifndef _WIN32
+#  include <sys/wait.h>
+#endif
 
 #include <nlohmann/json.hpp>
 
@@ -1067,6 +1070,7 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
     }
 
     SingleDrvOutputs builtOutputs;
+    bool fallBackToLocalBuild = false;
     try {
         /* Compute the FS closure of the outputs and register them as
            being valid. With builder-rpc-v0 the builder already submitted
@@ -1077,12 +1081,39 @@ Goal::Co<DerivationBuildingGoal::LocalBuildOutcome> DerivationBuildingGoal::buil
         builder->cleanupBuild(true);
     } catch (BuilderFailureError & e) {
         builder.reset();
-        outputLocks.unlock();
-        co_return fixupBuilderFailureErrorMessage(std::move(e), *buildLog);
+
+        /* External builder declined; build locally if this host can. */
+        if (localBuildCap.externalBuilder && WIFEXITED(e.builderStatus)
+            && WEXITSTATUS(e.builderStatus) == externalBuilderDeclinedExitCode) {
+            bool platformOk = drv->platform == settings.thisSystem.get()
+                              || settings.extraPlatforms.get().count(drv->platform) || drv->isBuiltin();
+            auto required = drvOptions.getRequiredSystemFeatures(*drv);
+            auto & available = worker.store.config.systemFeatures.get();
+            bool featuresOk =
+                std::ranges::all_of(required, [&](const std::string & f) { return available.count(f); });
+            if (worker.settings.maxBuildJobs.get() != 0 && platformOk && featuresOk) {
+                debug(
+                    "external builder declined '%s'; falling back to a local build",
+                    worker.store.printStorePath(drvPath));
+                fallBackToLocalBuild = true;
+            }
+        }
+
+        if (!fallBackToLocalBuild) {
+            outputLocks.unlock();
+            co_return fixupBuilderFailureErrorMessage(std::move(e), *buildLog);
+        }
     } catch (BuildError & e) {
         builder.reset();
         outputLocks.unlock();
         co_return std::move(e);
+    }
+
+    /* co_await is not allowed inside an exception handler. */
+    if (fallBackToLocalBuild) {
+        localBuildCap.externalBuilder = nullptr;
+        co_return co_await buildLocally(
+            std::move(localBuildCap), inputPaths, initialOutputs, drvOptions, std::move(outputLocks));
     }
     {
         builder.reset();
