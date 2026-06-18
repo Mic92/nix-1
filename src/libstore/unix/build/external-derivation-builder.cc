@@ -20,6 +20,13 @@ struct ExternalDerivationBuilder : DerivationBuilderImpl
         experimentalFeatureSettings.require(Xp::ExternalBuilders);
     }
 
+    void prepareSandbox() override
+    {
+        /* Sandboxing (including uid-range support) is the external
+           builder's responsibility; don't reject derivations the
+           local platform could not sandbox itself. */
+    }
+
     std::filesystem::path tmpDirInSandbox() override
     {
         /* In a sandbox, for determinism, always use the same temporary
