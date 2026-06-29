@@ -7,6 +7,8 @@
 #include "nix/util/signals.hh"
 #include "nix/util/util.hh"
 
+#include "nix/store/gcp-creds.hh"
+#include "nix/store/gcs-url.hh"
 #include "nix/store/s3-url.hh"
 #include <optional>
 #if NIX_WITH_AWS_AUTH
@@ -1186,7 +1188,7 @@ struct curlFileTransfer : public FileTransfer
     ItemHandle enqueueItem(ref<TransferItem> item)
     {
         if (item->request.data && item->request.uri.scheme() != "http" && item->request.uri.scheme() != "https"
-            && item->request.uri.scheme() != "s3")
+            && item->request.uri.scheme() != "s3" && item->request.uri.scheme() != "gs")
             throw nix::Error("uploading to '%s' is not supported", item->request.displayUri());
 
         {
@@ -1203,10 +1205,15 @@ struct curlFileTransfer : public FileTransfer
 
     ItemHandle enqueueFileTransfer(const FileTransferRequest & request, Callback<FileTransferResult> callback) override
     {
-        /* Handle s3:// URIs by converting to HTTPS and optionally adding auth */
+        /* Handle s3:// and gs:// URIs by converting to HTTPS and optionally adding auth */
         if (request.uri.scheme() == "s3") {
             auto modifiedRequest = request;
             modifiedRequest.setupForS3();
+            return enqueueItem(make_ref<TransferItem>(*this, std::move(modifiedRequest), std::move(callback)));
+        }
+        if (request.uri.scheme() == "gs") {
+            auto modifiedRequest = request;
+            modifiedRequest.setupForGCS();
             return enqueueItem(make_ref<TransferItem>(*this, std::move(modifiedRequest), std::move(callback)));
         }
 
@@ -1301,6 +1308,39 @@ void FileTransferRequest::setupForS3()
 #else
     // When built without AWS support, just try as public bucket
     debug("S3 request without authentication (built without AWS support)");
+#endif
+}
+
+void FileTransferRequest::setupForGCS()
+{
+    auto parsed = ParsedGCSURL::parse(uri.parsed());
+    uri = parsed.toHttpsUrl();
+
+    /* Requester-pays buckets reject requests without a billing project. */
+    if (parsed.userProject)
+        headers.emplace_back("x-goog-user-project", *parsed.userProject);
+
+    if (preResolvedGcpAccessToken) {
+        headers.emplace_back("Authorization", "Bearer " + *preResolvedGcpAccessToken);
+        return;
+    }
+
+    /* Parent already resolved (to nothing); don't consult the provider. */
+    if (gcpCredentialsPreResolved)
+        return;
+
+#if NIX_WITH_GCS_AUTH
+    try {
+        if (auto creds = getGcpCredentialsProvider()->maybeGetCredentials())
+            headers.emplace_back("Authorization", "Bearer " + creds->accessToken);
+    } catch (GcpAuthError & e) {
+        /* Match the S3 behaviour: a credentials failure should not stop us
+           from trying the bucket anonymously, since public GCS buckets work
+           fine without auth. */
+        printTalkative("GCP authentication failed, proceeding anonymously: %s", e.what());
+    }
+#else
+    debug("GCS request without authentication (built without GCS auth support)");
 #endif
 }
 
