@@ -60,6 +60,20 @@ TEST_F(FileTransferRequestGCS, rewritesUrlAndUserProject)
     EXPECT_EQ(findHeader(req.headers, "x-goog-user-project"), std::optional<std::string>{"billing"});
 }
 
+TEST_F(FileTransferRequestGCS, preResolvedTokenWins)
+{
+#if NIX_WITH_GCS_AUTH
+    /* Ensure the provider would have supplied something, so we know the
+       pre-resolved token actually short-circuits it. */
+    stub->result = GcpCredentials{.accessToken = "provider-token", .expiresAt = {}};
+#endif
+    FileTransferRequest req(VerbatimURL{std::string{"gs://b/k"}});
+    req.preResolvedGcpAccessToken = "forwarded-token";
+    req.setupForGCS();
+
+    EXPECT_EQ(findHeader(req.headers, "Authorization"), std::optional<std::string>{"Bearer forwarded-token"});
+}
+
 #if NIX_WITH_GCS_AUTH
 
 TEST_F(FileTransferRequestGCS, usesProviderToken)

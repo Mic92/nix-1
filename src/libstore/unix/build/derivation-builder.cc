@@ -54,6 +54,11 @@
 #  include "nix/util/url.hh"
 #endif
 
+#if NIX_WITH_GCS_AUTH
+#  include "nix/store/gcp-creds.hh"
+#  include "nix/util/url.hh"
+#endif
+
 namespace nix {
 
 struct NotDeterministic final : CloneableError<NotDeterministic, BuildError>
@@ -344,6 +349,15 @@ protected:
     std::optional<AwsCredentials> preResolveAwsCredentials();
 #endif
 
+#if NIX_WITH_GCS_AUTH
+    /**
+     * Pre-resolve a GCP access token for gs:// URLs in builtin:fetchurl.
+     * Called before forking so the sandboxed child does not need ADC files
+     * or metadata-server access.
+     */
+    std::optional<std::string> preResolveGcpAccessToken();
+#endif
+
 private:
 
     /**
@@ -405,6 +419,9 @@ protected:
     {
 #if NIX_WITH_AWS_AUTH
         std::optional<AwsCredentials> awsCredentials;
+#endif
+#if NIX_WITH_GCS_AUTH
+        std::optional<std::string> gcpAccessToken;
 #endif
     };
 
@@ -1013,11 +1030,37 @@ std::optional<AwsCredentials> DerivationBuilderImpl::preResolveAwsCredentials()
 }
 #endif
 
+#if NIX_WITH_GCS_AUTH
+std::optional<std::string> DerivationBuilderImpl::preResolveGcpAccessToken()
+{
+    if (drv.isBuiltin() && drv.builder == "builtin:fetchurl") {
+        auto url = drv.env.find("url");
+        if (url != drv.env.end()) {
+            try {
+                if (parseURL(url->second).scheme == "gs") {
+                    debug("Pre-resolving GCP access token for gs:// URL in builtin:fetchurl");
+                    if (auto creds = getGcpCredentialsProvider()->maybeGetCredentials()) {
+                        debug("Successfully pre-resolved GCP access token in parent process");
+                        return creds->accessToken;
+                    }
+                }
+            } catch (const std::exception & e) {
+                debug("Error pre-resolving GCP access token: %s", e.what());
+            }
+        }
+    }
+    return std::nullopt;
+}
+#endif
+
 void DerivationBuilderImpl::startChild()
 {
     RunChildArgs args{
 #if NIX_WITH_AWS_AUTH
         .awsCredentials = preResolveAwsCredentials(),
+#endif
+#if NIX_WITH_GCS_AUTH
+        .gcpAccessToken = preResolveGcpAccessToken(),
 #endif
     };
 
@@ -1303,6 +1346,9 @@ void DerivationBuilderImpl::runChild(RunChildArgs args)
             .tmpDirInSandbox = tmpDirInSandbox(),
 #if NIX_WITH_AWS_AUTH
             .awsCredentials = args.awsCredentials,
+#endif
+#if NIX_WITH_GCS_AUTH
+            .gcpAccessToken = args.gcpAccessToken,
 #endif
         };
 
