@@ -70,6 +70,7 @@ sources = files(
   'derived-path.cc',
   'downstream-placeholder.cc',
   'dummy-store.cc',
+  'filetransfer-request.cc',
   'filetransfer-retry.cc',
   'gcp-creds.cc',
   'gcs-url.cc',

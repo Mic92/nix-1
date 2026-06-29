@@ -366,6 +366,7 @@ struct FileTransferRequest
     }
 
     void setupForS3();
+    void setupForGCS();
 
 private:
     friend struct curlFileTransfer;
