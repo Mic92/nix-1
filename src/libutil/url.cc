@@ -116,6 +116,13 @@ static std::string percentEncodeCharSet(std::string_view s, auto charSet)
 
 static ParsedURL fromBoostUrlView(boost::urls::url_view url, bool lenient);
 
+std::variant<ParsedURL, ParsedURL::Authority> parseUrlOrAuthority(std::string_view s)
+{
+    if (s.find("://") != std::string_view::npos)
+        return parseURL(s);
+    return ParsedURL::Authority::parse(s);
+}
+
 ParsedURL parseURL(std::string_view url, bool lenient)
 try {
     /* Account for several non-standard properties of nix urls (for back-compat):

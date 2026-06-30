@@ -312,6 +312,16 @@ ParsedURL parseURL(std::string_view url, bool lenient = false);
 ParsedURL parseURLRelative(std::string_view url, const ParsedURL & base);
 
 /**
+ * Parse a string that denotes either a full URL (`scheme://host[:port]/...`)
+ * or a bare authority (`host[:port]`). The two are distinguished by the `://`
+ * delimiter; without it the whole string is parsed as an authority. This
+ * avoids misparsing `host:port` as a URL whose scheme is `host`.
+ *
+ * @throws BadURL
+ */
+std::variant<ParsedURL, ParsedURL::Authority> parseUrlOrAuthority(std::string_view s);
+
+/**
  * Although that’s not really standardized anywhere, an number of tools
  * use a scheme of the form 'x+y' in urls, where y is the “transport layer”
  * scheme, and x is the “application layer” scheme.

@@ -1290,6 +1290,22 @@ TEST(parseURL, gitlabNamespacedProjectUrls)
     ASSERT_EQ(s, parsed.to_string());
 }
 
+TEST(parseUrlOrAuthority, bareHostPortIsAuthority)
+{
+    /* Without "://" the string is an authority, not a URL whose scheme is the
+       host. This is the regression guard for s3://?endpoint=host:port. */
+    auto r = parseUrlOrAuthority("localhost:4443");
+    ASSERT_TRUE(std::holds_alternative<Authority>(r));
+    EXPECT_EQ(std::get<Authority>(r), (Authority{.host = "localhost", .port = 4443}));
+}
+
+TEST(parseUrlOrAuthority, fullUrlIsUrl)
+{
+    auto r = parseUrlOrAuthority("http://localhost:4443");
+    ASSERT_TRUE(std::holds_alternative<ParsedURL>(r));
+    EXPECT_EQ(std::get<ParsedURL>(r).scheme, "http");
+}
+
 /* ----------------------------------------------------------------------------
  * pathSegments
  * --------------------------------------------------------------------------*/

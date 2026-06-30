@@ -86,14 +86,8 @@ try {
         .endpoint = [&]() -> decltype(ParsedS3URL::endpoint) {
             if (!endpoint)
                 return std::monostate();
-
-            /* Try to parse the endpoint as a full-fledged URL with a scheme. */
-            try {
-                return parseURL(*endpoint);
-            } catch (BadURL &) {
-            }
-
-            return ParsedURL::Authority::parse(*endpoint);
+            return std::visit(
+                [](auto v) -> decltype(ParsedS3URL::endpoint) { return v; }, parseUrlOrAuthority(*endpoint));
         }(),
     };
 } catch (BadURL & e) {
