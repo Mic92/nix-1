@@ -167,6 +167,37 @@ TEST(GcpCreds, signRS256RejectsBadPem)
 }
 
 // ---------------------------------------------------------------------------
+// extractSubjectToken (workload identity federation)
+// ---------------------------------------------------------------------------
+
+TEST(GcpCreds, extractSubjectTokenTextIsVerbatim)
+{
+    // A null format (field absent) and an explicit text format both pass through.
+    EXPECT_EQ(extractSubjectToken("raw-oidc-jwt", nlohmann::json{}), "raw-oidc-jwt");
+    EXPECT_EQ(extractSubjectToken("raw-oidc-jwt", {{"type", "text"}}), "raw-oidc-jwt");
+}
+
+TEST(GcpCreds, extractSubjectTokenJsonField)
+{
+    nlohmann::json format = {{"type", "json"}, {"subject_token_field_name", "id_token"}};
+    EXPECT_EQ(extractSubjectToken(R"({"id_token":"abc","other":1})", format), "abc");
+}
+
+TEST(GcpCreds, extractSubjectTokenJsonRejectsMissingField)
+{
+    nlohmann::json format = {{"type", "json"}, {"subject_token_field_name", "id_token"}};
+    EXPECT_THROW(extractSubjectToken(R"({"other":1})", format), GcpAuthError);
+    EXPECT_THROW(extractSubjectToken("not json", format), GcpAuthError);
+}
+
+TEST(GcpCreds, extractSubjectTokenRejectsUnknownFormat)
+{
+    EXPECT_THROW(extractSubjectToken("x", {{"type", "xml"}}), GcpAuthError);
+    // json format without a field name is a config error.
+    EXPECT_THROW(extractSubjectToken("{}", {{"type", "json"}}), GcpAuthError);
+}
+
+// ---------------------------------------------------------------------------
 // findAdcFile
 // ---------------------------------------------------------------------------
 
