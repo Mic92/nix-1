@@ -36,7 +36,9 @@ def make_handler(args):
             if bucket in args.public_buckets:
                 return True
             got = self.headers.get("Authorization", "")
-            return got == f"Bearer {args.token}"
+            # The federated token is accepted directly (WIF without impersonation);
+            # the SA token is what impersonation and the other flows yield.
+            return got in (f"Bearer {args.token}", f"Bearer {args.federated_token}")
 
         def _send(self, code: int, body: bytes = b"", headers: dict | None = None):
             self.send_response(code)
@@ -73,6 +75,47 @@ def make_handler(args):
             )
             return True
 
+        # ------- Workload identity federation (external_account) -------
+        def _maybe_wif_endpoint(self) -> bool:
+            path = urlsplit(self.path).path
+            if path == "/sts":
+                # RFC 8693 token exchange: require a subject token, hand back a
+                # federated access token.
+                form = parse_qs(self._body().decode())
+                ok = (
+                    "token-exchange" in form.get("grant_type", [""])[0]
+                    and form.get("subject_token", [""])[0] != ""
+                )
+                if not ok:
+                    return self._send(400) or True
+                self._send(
+                    200,
+                    json.dumps(
+                        {
+                            "access_token": args.federated_token,
+                            "expires_in": 3600,
+                            "token_type": "Bearer",
+                        }
+                    ).encode(),
+                    {"Content-Type": "application/json"},
+                )
+                return True
+            if path.endswith(":generateAccessToken"):
+                # Impersonation: the federated token buys a service-account token.
+                authed = self.headers.get("Authorization") == f"Bearer {args.federated_token}"
+                self._body()  # drain
+                if not authed:
+                    return self._send(401) or True
+                self._send(
+                    200,
+                    json.dumps(
+                        {"accessToken": args.token, "expireTime": "2099-01-01T00:00:00Z"}
+                    ).encode(),
+                    {"Content-Type": "application/json"},
+                )
+                return True
+            return False
+
         # ------- GCS XML API -------
         def do_HEAD(self):
             bucket, key, _ = self._parse()
@@ -108,7 +151,7 @@ def make_handler(args):
             self._send(200)
 
         def do_POST(self):
-            if self._maybe_token_endpoint():
+            if self._maybe_token_endpoint() or self._maybe_wif_endpoint():
                 return
             bucket, key, q = self._parse()
             if not self._authed(bucket):
@@ -159,6 +202,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--port", type=int, default=4443)
     p.add_argument("--token", default="test-access-token")
+    p.add_argument("--federated-token", default="federated-access-token")
     p.add_argument(
         "--public-bucket", dest="public_buckets", action="append", default=[]
     )
