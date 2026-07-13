@@ -84,7 +84,10 @@ public:
           or upload) before giving up. Retries apply to transient
           failures: connection-level errors, HTTP 408, 429, and most
           5xx responses. Authentication failures (401/403/407),
-          404/410, and other 4xx responses are not retried.
+          404/410, and other 4xx responses are not retried, except
+          that an S3 403 with a token-expiry error code triggers an
+          asynchronous credential refresh; attempts may continue until
+          the refresh completes or the limit is reached.
         )",
         {"download-attempts"}};
 
@@ -299,6 +302,26 @@ struct FileTransferRequest
      * When provided along with usernameAuth, this will be used instead of fetching fresh credentials.
      */
     std::optional<std::string> preResolvedAwsSessionToken;
+
+    /**
+     * Current AWS session token, applied as the x-amz-security-token header.
+     * Populated by setupForS3() and refreshed on retry when awsS3Url is set.
+     */
+    std::optional<std::string> awsSessionToken;
+
+    /**
+     * The parsed S3 URL, retained only when credentials were sourced from the
+     * provider (not pre-resolved), so init() can re-fetch on retry after a 403.
+     */
+    std::optional<ParsedS3URL> awsS3Url;
+
+    /**
+     * The credential provider, stashed alongside awsS3Url so maybeRetry()
+     * doesn't have to call getAwsCredentialsProvider() on the worker thread —
+     * that function-local static is destroyed before ~curlFileTransfer joins
+     * the worker (LIFO: provider constructed after fileTransfer).
+     */
+    std::optional<ref<AwsCredentialProvider>> awsCredProvider;
 #endif
 
     FileTransferRequest(VerbatimURL uri)

@@ -4,6 +4,7 @@
 
 #  include <aws/crt/Types.h>
 #  include "nix/store/s3-url.hh"
+#  include "nix/util/environment-variables.hh"
 #  include "nix/util/logging.hh"
 
 #  include <aws/crt/Api.h>
@@ -171,14 +172,32 @@ static std::shared_ptr<Aws::Crt::Auth::ICredentialsProvider> createSSOProvider(
 }
 
 /**
+ * Check whether the AWS SDK can resolve a region from the standard
+ * environment variables. Mirrors aws_credentials_provider_resolve_region_from_env.
+ */
+static bool awsRegionSetInEnv()
+{
+    return getEnvNonEmpty("AWS_REGION") || getEnvNonEmpty("AWS_DEFAULT_REGION");
+}
+
+/**
  * Create an STS WebIdentity credentials provider using the C library directly.
  * This reads AWS_WEB_IDENTITY_TOKEN_FILE, AWS_ROLE_ARN, AWS_ROLE_SESSION_NAME,
  * and AWS_REGION from the environment (falling back to the profile config).
  * Used by EKS IRSA, GitHub Actions OIDC, and other sts:AssumeRoleWithWebIdentity flows.
  * Returns nullptr if the required parameters can't be resolved.
+ *
+ * @param fallbackRegion Region to use when neither AWS_REGION nor
+ *   AWS_DEFAULT_REGION is set — typically the ?region= from the S3 URL.
+ *   Note: this also overrides any region from the profile config, since
+ *   aws-c-auth gives options.region precedence over all implicit sources.
+ *   Without this fallback the provider fails entirely in IRSA setups where
+ *   the pod environment sets the token and role ARN but not the region
+ *   (observed with AWS_CONFIG_FILE=/dev/null).
  */
 static std::shared_ptr<Aws::Crt::Auth::ICredentialsProvider> createSTSWebIdentityProvider(
     const std::string & profileName,
+    const std::string & fallbackRegion,
     Aws::Crt::Io::ClientBootstrap * bootstrap,
     Aws::Crt::Io::TlsContext * tlsContext,
     Aws::Crt::Allocator * allocator = Aws::Crt::ApiAllocator())
@@ -190,6 +209,14 @@ static std::shared_ptr<Aws::Crt::Auth::ICredentialsProvider> createSTSWebIdentit
     options.tls_ctx = tlsContext ? tlsContext->GetUnderlyingHandle() : nullptr;
     if (!profileName.empty()) {
         options.profile_name_override = aws_byte_cursor_from_c_str(profileName.c_str());
+    }
+
+    // aws-c-auth gives options.region precedence over env vars, so only set it
+    // when env vars are absent — otherwise we'd mask a user-supplied AWS_REGION.
+    // The cursor is copied via aws_string_new_from_cursor in s_parameters_new,
+    // so fallbackRegion only needs to outlive this call.
+    if (!fallbackRegion.empty() && !awsRegionSetInEnv()) {
+        options.region = aws_byte_cursor_from_c_str(fallbackRegion.c_str());
     }
 
     return createWrappedProvider(aws_credentials_provider_new_sts_web_identity(allocator, &options), allocator);
@@ -288,32 +315,47 @@ public:
         }
     }
 
-    AwsCredentials getCredentialsRaw(const std::string & profile);
+    AwsCredentials getCredentialsRaw(const std::string & profile, const std::string & region);
 
     AwsCredentials getCredentials(const ParsedS3URL & url) override
     {
         auto profile = url.profile.value_or("");
+        auto region = url.region.value_or("");
         try {
-            return getCredentialsRaw(profile);
+            return getCredentialsRaw(profile, region);
         } catch (AwsAuthError & e) {
             warn("AWS authentication failed for S3 request %s: %s", url.toHttpsUrl(), e.message());
-            credentialProviderCache.erase(profile);
+            credentialProviderCache.erase({profile, region});
             throw;
         }
     }
 
-    std::shared_ptr<Aws::Crt::Auth::ICredentialsProvider> createProviderForProfile(const std::string & profile);
+    std::optional<AwsCredentials> tryGetCredentials(const ParsedS3URL & url) noexcept override
+    {
+        try {
+            return getCredentialsRaw(url.profile.value_or(""), url.region.value_or(""));
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+
+    std::shared_ptr<Aws::Crt::Auth::ICredentialsProvider>
+    createProviderForProfile(const std::string & profile, const std::string & region);
 
 private:
     Aws::Crt::ApiHandle apiHandle;
     std::shared_ptr<Aws::Crt::Io::TlsContext> tlsContext;
     Aws::Crt::Io::ClientBootstrap * bootstrap;
-    boost::concurrent_flat_map<std::string, std::shared_ptr<Aws::Crt::Auth::ICredentialsProvider>>
-        credentialProviderCache;
+    // Keyed by (profile, region). Region is part of the key because it is baked
+    // into the STS WebIdentity provider at construction time; two S3 URLs with
+    // different ?region= parameters need distinct chains.
+    boost::
+        concurrent_flat_map<std::pair<std::string, std::string>, std::shared_ptr<Aws::Crt::Auth::ICredentialsProvider>>
+            credentialProviderCache;
 };
 
 std::shared_ptr<Aws::Crt::Auth::ICredentialsProvider>
-AwsCredentialProviderImpl::createProviderForProfile(const std::string & profile)
+AwsCredentialProviderImpl::createProviderForProfile(const std::string & profile, const std::string & region)
 {
     // profileDisplayName is only used for debug logging - SDK uses its default profile
     // when ProfileNameOverride is not set
@@ -369,7 +411,7 @@ AwsCredentialProviderImpl::createProviderForProfile(const std::string & profile)
     bool ecsAdded = false;
     if (tlsContext) {
         addProviderToChain("STS WebIdentity", [&]() {
-            return createSTSWebIdentityProvider(profile, bootstrap, tlsContext.get(), allocator);
+            return createSTSWebIdentityProvider(profile, region, bootstrap, tlsContext.get(), allocator);
         });
         ecsAdded =
             addProviderToChain("ECS", [&]() { return createECSProvider(bootstrap, tlsContext.get(), allocator); });
@@ -392,21 +434,33 @@ AwsCredentialProviderImpl::createProviderForProfile(const std::string & profile)
             profileDisplayName);
     }
 
-    return Aws::Crt::Auth::CredentialsProvider::CreateCredentialsProviderChain(chainConfig, allocator);
+    auto chain = Aws::Crt::Auth::CredentialsProvider::CreateCredentialsProviderChain(chainConfig, allocator);
+    if (!chain)
+        return nullptr;
+
+    // Wrap in a caching provider so each S3 request doesn't trigger a fresh STS
+    // / SSO / IMDS round-trip. aws-c-auth's default chain does this internally
+    // (DEFAULT_CREDENTIAL_PROVIDER_REFRESH_MS = 15min); the cached wrapper honors
+    // the credential's own expiration if shorter.
+    Aws::Crt::Auth::CredentialsProviderCachedConfig cachedConfig;
+    cachedConfig.Provider = chain;
+    cachedConfig.CachedCredentialTTL = std::chrono::minutes(15);
+    return Aws::Crt::Auth::CredentialsProvider::CreateCredentialsProviderCached(cachedConfig, allocator);
 }
 
-AwsCredentials AwsCredentialProviderImpl::getCredentialsRaw(const std::string & profile)
+AwsCredentials AwsCredentialProviderImpl::getCredentialsRaw(const std::string & profile, const std::string & region)
 {
     std::shared_ptr<Aws::Crt::Auth::ICredentialsProvider> provider;
+    auto key = std::pair{profile, region};
 
     credentialProviderCache.try_emplace_and_cvisit(
-        profile,
+        key,
         nullptr,
-        [&](auto & kv) { provider = kv.second = createProviderForProfile(profile); },
+        [&](auto & kv) { provider = kv.second = createProviderForProfile(profile, region); },
         [&](const auto & kv) { provider = kv.second; });
 
     if (!provider) {
-        credentialProviderCache.erase_if(profile, [](const auto & kv) {
+        credentialProviderCache.erase_if(key, [](const auto & kv) {
             [[maybe_unused]] auto [_, provider] = kv;
             return !provider;
         });

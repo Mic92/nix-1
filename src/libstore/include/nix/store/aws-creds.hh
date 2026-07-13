@@ -70,6 +70,13 @@ public:
         }
     }
 
+    /**
+     * Like maybeGetCredentials but skips the warn() and cache-erase in the
+     * error path. Safe to call from detached threads that may outlive the
+     * nix::logger global. noexcept — swallows everything.
+     */
+    virtual std::optional<AwsCredentials> tryGetCredentials(const ParsedS3URL & url) noexcept = 0;
+
     virtual ~AwsCredentialProvider() {}
 };
 
