@@ -18,6 +18,11 @@ namespace nix {
  * concept (authentication uses OAuth2 bearer tokens, see gcp-creds.hh). We
  * always use path-style addressing (`/bucket/key`), which works for all bucket
  * names including those containing dots.
+ *
+ * There is deliberately no `endpoint`/`scheme` in the URL: bearer tokens are
+ * host-independent, so a URL-supplied endpoint would let e.g. `fetchurl`
+ * exfiltrate the caller's token. A custom endpoint is a store setting only
+ * (see `GCSBinaryCacheStoreConfig`).
  */
 struct ParsedGCSURL
 {
@@ -28,27 +33,25 @@ struct ParsedGCSURL
      * since the bucket name is necessary.
      */
     std::vector<std::string> key;
-    /** `https` (default) or `http`. */
-    std::optional<std::string> scheme;
     /** Billing project for requester-pays buckets (sent as `x-goog-user-project`). */
     std::optional<std::string> userProject;
     /** Object generation (GCS object versioning), passed through as a query parameter. */
     std::optional<std::string> generation;
-    /**
-     * The endpoint can be either missing (defaults to `storage.googleapis.com`),
-     * be an absolute URI (with a scheme like `http:`), or an authority
-     * (so an IP address or a registered name).
-     */
-    std::variant<std::monostate, ParsedURL, ParsedURL::Authority> endpoint;
 
     static ParsedGCSURL parse(const ParsedURL & uri);
 
     /**
-     * Convert this ParsedGCSURL to an HTTP(S) ParsedURL targeting the GCS XML API.
-     * The scheme defaults to HTTPS but respects the 'scheme' setting and custom
-     * endpoint schemes. Path-style addressing is always used.
+     * Endpoint for `toHttpsUrl()`: absent (`storage.googleapis.com`), an
+     * absolute URI, or a bare authority.
      */
-    ParsedURL toHttpsUrl() const;
+    using Endpoint = std::variant<std::monostate, ParsedURL, ParsedURL::Authority>;
+
+    /**
+     * Convert to an HTTP(S) URL against the GCS XML API. The default targets
+     * `https://storage.googleapis.com`; store code passes a custom endpoint
+     * from operator configuration.
+     */
+    ParsedURL toHttpsUrl(std::string_view scheme = "https", const Endpoint & endpoint = std::monostate{}) const;
 
     auto operator<=>(const ParsedGCSURL & other) const = default;
 };

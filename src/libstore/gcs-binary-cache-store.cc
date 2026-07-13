@@ -1,4 +1,6 @@
 #include "nix/store/gcs-binary-cache-store.hh"
+#include "nix/store/gcp-creds.hh"
+#include "nix/store/gcs-url.hh"
 #include "nix/store/store-registration.hh"
 
 #include <cassert>
@@ -24,9 +26,31 @@ protected:
         return "GCS";
     }
 
-    void prepareRequest(FileTransferRequest & req) const override
+    /**
+     * Produce an `http(s)://<endpoint>/<bucket>/<path>` request with the
+     * bearer token attached. This is where the store's configured endpoint is
+     * applied; a `gs://` URL cannot carry one (see `ParsedGCSURL`).
+     */
+    FileTransferRequest makeRequest(std::string_view path) override
     {
-        req.setupForGCS();
+        auto req = HttpBinaryCacheStore::makeRequest(path);
+        req.uri =
+            ParsedGCSURL::parse(req.uri.parsed()).toHttpsUrl(gcsConfig->scheme.get(), gcsConfig->resolvedEndpoint);
+
+        if (auto up = gcsConfig->userProject.get(); !up.empty())
+            req.headers.emplace_back("x-goog-user-project", up);
+
+#if NIX_WITH_GCS_AUTH
+        if (auto creds = getGcpCredentialsProvider()->maybeGetCredentials())
+            req.headers.emplace_back("Authorization", "Bearer " + creds->accessToken);
+#endif
+        return req;
+    }
+
+    void prepareRequest(FileTransferRequest &) const override
+    {
+        /* makeRequest() already rewrote the URL and attached credentials;
+           nothing left for the multipart path to do. */
     }
 
     void addUploadHeaders(Headers & headers) const override
@@ -38,7 +62,6 @@ protected:
 private:
     ref<GCSBinaryCacheStoreConfig> gcsConfig;
 };
-
 
 StringSet GCSBinaryCacheStoreConfig::uriSchemes()
 {
@@ -52,7 +75,9 @@ GCSBinaryCacheStoreConfig::GCSBinaryCacheStoreConfig(ParsedURL cacheUri_, const 
     assert(cacheUri.query.empty());
     assert(cacheUri.scheme == "gs");
 
-    copyUriParams(params, gcsUriSettings);
+    if (auto ep = endpoint.get(); !ep.empty())
+        resolvedEndpoint = std::visit([](auto v) -> ParsedGCSURL::Endpoint { return v; }, parseUrlOrAuthority(ep));
+
     validateMultipartSettings();
 }
 
@@ -64,7 +89,7 @@ GCSBinaryCacheStoreConfig::GCSBinaryCacheStoreConfig(std::string_view bucketName
 
 std::string GCSBinaryCacheStoreConfig::getHumanReadableURI() const
 {
-    return renderHumanReadableUri(gcsUriSettings);
+    return renderHumanReadableUri({&scheme, &endpoint, &userProject});
 }
 
 std::string GCSBinaryCacheStoreConfig::doc()

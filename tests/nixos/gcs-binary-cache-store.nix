@@ -111,17 +111,6 @@ in
       machine.succeed(f"nix copy --no-check-sigs --from '{pub}' {PKG_A}")
       machine.succeed(f"nix path-info {PKG_A}")
 
-      # === builtin:fetchurl from a public bucket with NO credentials ===
-      # Regression for the fork deadlock: the sandboxed child must not re-run
-      # the ADC chain (which would block on the post-fork global FileTransfer).
-      pub_info = f"gs://public-cache/nix-cache-info?{ENDPOINT}"
-      pub_hash = machine.succeed(f"nix-prefetch-url '{pub_info}'").strip()
-      machine.succeed(
-          "nix build --impure --no-link --expr '"
-          f'import <nix/fetchurl.nix> {{ name = "gcs-public-fork"; url = "{pub_info}"; sha256 = "{pub_hash}"; }}'
-          "' 2>&1"
-      )
-
       # === multipart upload through S3CompatBinaryCacheStore ===
       large = machine.succeed(
           "nix-store --add $(dd if=/dev/urandom of=/tmp/large bs=1M count=10 2>/dev/null && echo /tmp/large)"
@@ -137,20 +126,17 @@ in
       machine.succeed(f"{ENV} nix copy --no-check-sigs --from '{mp_url}' {large}")
       machine.succeed(f"nix path-info {large}")
 
-      # === builtin:fetchurl gs:// inside the sandbox ===
-      # The forked builder has no ADC file or metadata server; the parent must
-      # pre-resolve the bearer token and pass it via BuiltinBuilderContext.
+      # === builtin:fetchurl gs:// with a URL-supplied endpoint ===
+      # A gs:// URL cannot carry an endpoint (bearer tokens are
+      # host-independent, so a URL-supplied one would let a derivation
+      # exfiltrate the daemon's token). ParsedGCSURL::parse() refuses it.
       info_url = f"gs://private-cache/nix-cache-info?{ENDPOINT}"
-      info_hash = machine.succeed(
-          f"{ENV} nix-prefetch-url '{info_url}'"
-      ).strip()
-      out = machine.succeed(
-          f"{ENV} nix build --debug --impure --no-link --print-out-paths --expr '"
-          f'import <nix/fetchurl.nix> {{ name = "gcs-fork-test"; url = "{info_url}"; sha256 = "{info_hash}"; }}'
+      out = machine.fail(
+          f"{ENV} nix build --debug --impure --no-link --expr '"
+          f'import <nix/fetchurl.nix> {{ name = "gcs-fork-test"; url = "{info_url}"; sha256 = "{"0"*52}"; }}'
           "' 2>&1"
       )
-      assert "Pre-resolving GCP access token" in out, out
-      assert "Using pre-resolved GCP access token from parent process" in out, out
+      assert "not accepted in a gs:// URL" in out, out
 
       # === user-project header forwarded ===
       up_url = store_url("billing-cache", **{"user-project": "billing-proj"})

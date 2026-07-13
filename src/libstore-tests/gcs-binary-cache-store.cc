@@ -4,24 +4,20 @@
 
 namespace nix {
 
-TEST(GCSBinaryCacheStore, uriSettingsCarriedInQuery)
+TEST(GCSBinaryCacheStore, resolvesEndpointFromParams)
 {
-    /* The bucket becomes the authority, and scheme/endpoint/user-project are
-       recovered per request from the URL by setupForGCS(), so the config must
-       copy them into cacheUri.query. */
     Store::Config::Params params{
         {"endpoint", "localhost:4443"},
+        {"scheme", "http"},
         {"user-project", "billing-proj"},
         {"storage-class", "NEARLINE"},
     };
     GCSBinaryCacheStoreConfig config{"my-bucket", params};
 
     EXPECT_EQ(config.cacheUri.scheme, "gs");
-    EXPECT_EQ(config.cacheUri.authority, (ParsedURL::Authority{.host = "my-bucket"}));
-    EXPECT_EQ(config.cacheUri.query.at("endpoint"), "localhost:4443");
-    EXPECT_EQ(config.cacheUri.query.at("user-project"), "billing-proj");
-    /* storage-class is sent as a header, not a URL param. */
-    EXPECT_FALSE(config.cacheUri.query.contains("storage-class"));
+    EXPECT_TRUE(config.cacheUri.query.empty());
+    EXPECT_TRUE(std::holds_alternative<ParsedURL::Authority>(config.resolvedEndpoint));
+    EXPECT_EQ(config.userProject.get(), "billing-proj");
     EXPECT_EQ(config.storageClass.get(), std::optional<std::string>{"NEARLINE"});
 }
 

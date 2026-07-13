@@ -22,14 +22,17 @@ try {
         throw BadURL("URI has a missing or invalid bucket name");
 
     auto getOptionalParam = [&](std::string_view key) -> std::optional<std::string> {
-        const auto & query = parsed.query;
-        auto it = query.find(key);
-        if (it == query.end())
+        auto it = parsed.query.find(key);
+        if (it == parsed.query.end())
             return std::nullopt;
         return it->second;
     };
 
-    auto endpoint = getOptionalParam("endpoint");
+    /* See the struct docstring: refusing here means a `gs://` URL cannot name
+       a non-Google host, so the bearer token can never be sent elsewhere. */
+    if (getOptionalParam("endpoint") || getOptionalParam("scheme"))
+        throw BadURL("'endpoint' and 'scheme' are not accepted in a gs:// URL; configure them on the store instead");
+
     if (parsed.path.size() <= 1 || !parsed.path.front().empty())
         throw BadURL("URI has a missing or invalid key");
 
@@ -38,25 +41,24 @@ try {
     return ParsedGCSURL{
         .bucket = parsed.authority->host,
         .key = std::move(path),
-        .scheme = getOptionalParam("scheme"),
-        .userProject = getOptionalParam("user-project"),
-        .generation = getOptionalParam("generation"),
-        .endpoint = [&]() -> decltype(ParsedGCSURL::endpoint) {
-            if (!endpoint)
-                return std::monostate();
-            return std::visit(
-                [](auto v) -> decltype(ParsedGCSURL::endpoint) { return v; }, parseUrlOrAuthority(*endpoint));
+        /* Goes verbatim into the `x-goog-user-project` header; restrict to the
+           GCP project-id charset so it cannot smuggle CR/LF from a URL. */
+        .userProject = [&]() -> std::optional<std::string> {
+            auto v = getOptionalParam("user-project");
+            if (v && v->find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") != std::string::npos)
+                throw BadURL("invalid 'user-project' value '%s' in GCS URL", *v);
+            return v;
         }(),
+        .generation = getOptionalParam("generation"),
     };
 } catch (BadURL & e) {
     e.addTrace({}, "while parsing GCS URI: '%s'", parsed.to_string());
     throw;
 }
 
-ParsedURL ParsedGCSURL::toHttpsUrl() const
+ParsedURL ParsedGCSURL::toHttpsUrl(std::string_view scheme, const Endpoint & endpoint) const
 {
-    /* Resolve scheme/authority/base-path from the endpoint variant, then build
-       the URL once. Always path-style: GCS also supports virtual-hosted-style
+    /* Always path-style: GCS also supports virtual-hosted-style
        (`bucket.storage.googleapis.com`) but path-style works for all bucket
        names including dotted ones, and emulators typically only support it. */
     struct Resolved
@@ -66,14 +68,12 @@ ParsedURL ParsedGCSURL::toHttpsUrl() const
         std::vector<std::string> path;
     };
 
-    auto schemeOr = [&](std::string_view def) { return scheme.value_or(std::string{def}); };
-
     auto resolved = std::visit(
         overloaded{
             [&](std::monostate) -> Resolved {
-                return {schemeOr("https"), ParsedURL::Authority{.host = "storage.googleapis.com"}, {""}};
+                return {std::string(scheme), ParsedURL::Authority{.host = "storage.googleapis.com"}, {""}};
             },
-            [&](const ParsedURL::Authority & auth) -> Resolved { return {schemeOr("https"), auth, {""}}; },
+            [&](const ParsedURL::Authority & auth) -> Resolved { return {std::string(scheme), auth, {""}}; },
             [&](const ParsedURL & url) -> Resolved { return {url.scheme, url.authority, url.path}; },
         },
         endpoint);

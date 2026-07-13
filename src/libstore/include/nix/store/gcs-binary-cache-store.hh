@@ -1,6 +1,7 @@
 #pragma once
 ///@file
 
+#include "nix/store/gcs-url.hh"
 #include "nix/store/s3-compat-binary-cache-store.hh"
 
 namespace nix {
@@ -64,11 +65,8 @@ struct GCSBinaryCacheStoreConfig : S3CompatBinaryCacheStoreConfig
           https://cloud.google.com/storage/docs/storage-classes
         )"};
 
-    /**
-     * Settings that must be carried in the `gs://` URL query so that
-     * `FileTransferRequest::setupForGCS()` can recover them per request.
-     */
-    const std::set<const AbstractSetting *> gcsUriSettings = {&scheme, &endpoint, &userProject};
+    /** `endpoint` parsed once at construction; passed to `toHttpsUrl()`. */
+    ParsedGCSURL::Endpoint resolvedEndpoint;
 
     static const std::string name()
     {
