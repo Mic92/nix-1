@@ -23,8 +23,6 @@
 
 namespace nix {
 
-void GcpAuthError::anchor() {}
-
 GcpCredentialProvider::~GcpCredentialProvider() {}
 
 using namespace std::chrono_literals;
@@ -277,7 +275,8 @@ std::string retrieveSubjectToken(const nlohmann::json & source)
     }
     if (auto url = source.value("url", std::string{}); !url.empty()) {
         Headers headers;
-        for (auto & [k, v] : source.value("headers", nlohmann::json::object()).items())
+        auto hdrs = source.value("headers", nlohmann::json::object());
+        for (auto & [k, v] : hdrs.items())
             headers.emplace_back(k, v.get<std::string>());
         return extractSubjectToken(httpGet(url, std::move(headers), /*attempts=*/std::nullopt).data, format);
     }

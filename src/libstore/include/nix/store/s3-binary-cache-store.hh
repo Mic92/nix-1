@@ -9,7 +9,11 @@ namespace nix {
 
 struct S3BinaryCacheStoreConfig : S3CompatBinaryCacheStoreConfig
 {
-    using S3CompatBinaryCacheStoreConfig::S3CompatBinaryCacheStoreConfig;
+    S3BinaryCacheStoreConfig(const Params & params)
+        : StoreConfig(params)
+        , S3CompatBinaryCacheStoreConfig(params)
+    {
+    }
 
     S3BinaryCacheStoreConfig(ParsedURL cacheUri, const Params & params);
 
