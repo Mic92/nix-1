@@ -592,7 +592,7 @@ static void registerValidity(bool reregister, bool hashGiven, bool canonicalise)
             /* !!! races */
             if (canonicalise)
                 canonicalisePathMetaData(
-                    store->printStorePath(info->path),
+                    ensureLocalStore()->toRealPath(info->path),
                     {NIX_WHEN_SUPPORT_ACLS(settings.getLocalSettings().ignoredAcls)});
             if (!hashGiven) {
                 HashResult hash = hashPath(
