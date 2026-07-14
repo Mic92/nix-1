@@ -20,7 +20,8 @@
 #  include <openssl/pem.h>
 
 #  include <chrono>
-#  include <sstream>
+#  include <cstdio>
+#  include <ctime>
 
 namespace nix {
 
@@ -122,8 +123,10 @@ GcpCredentials parseTokenResponse(const std::string & body)
         throw GcpAuthError("GCP token endpoint returned invalid JSON: %s", e.what());
     }
     auto token = j.value("access_token", std::string{});
-    if (token.empty())
-        throw GcpAuthError("GCP token endpoint response missing 'access_token': %s", body);
+    if (token.empty()) {
+        debug("GCP token endpoint response: %s", body);
+        throw GcpAuthError("GCP token endpoint response missing 'access_token'");
+    }
     auto expiresIn = std::chrono::seconds(j.value("expires_in", 3600));
     return GcpCredentials{
         .accessToken = std::move(token),
@@ -328,15 +331,30 @@ GcpCredentials impersonate(const std::string & url, const std::string & federate
         throw GcpAuthError("impersonation endpoint returned invalid JSON: %s", e.what());
     }
     auto token = j.value("accessToken", std::string{});
-    if (token.empty())
-        throw GcpAuthError("impersonation response missing 'accessToken': %s", res.data);
+    if (token.empty()) {
+        debug("GCP impersonation response: %s", res.data);
+        throw GcpAuthError("impersonation response missing 'accessToken'");
+    }
 
-    /* `expireTime` is an RFC3339 UTC timestamp. The documented default is one-hour. */
+    /* `expireTime` is an RFC3339 UTC timestamp; the documented default is 1h.
+     * std::chrono::parse is not yet in Apple libc++, so parse by hand. */
     std::chrono::seconds lifetime = 1h;
-    std::istringstream ss(j.value("expireTime", std::string{}));
-    std::chrono::sys_seconds expireTime;
-    if (ss >> std::chrono::parse("%FT%TZ", expireTime))
-        lifetime = std::chrono::duration_cast<std::chrono::seconds>(expireTime - std::chrono::system_clock::now());
+    struct tm tm{};
+    if (std::sscanf(
+            j.value("expireTime", std::string{}).c_str(),
+            "%d-%d-%dT%d:%d:%d",
+            &tm.tm_year,
+            &tm.tm_mon,
+            &tm.tm_mday,
+            &tm.tm_hour,
+            &tm.tm_min,
+            &tm.tm_sec)
+        == 6) {
+        tm.tm_year -= 1900;
+        tm.tm_mon -= 1;
+        lifetime = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::from_time_t(timegm(&tm)) - std::chrono::system_clock::now());
+    }
 
     return GcpCredentials{
         .accessToken = std::move(token),
@@ -382,8 +400,9 @@ std::optional<GcpCredentials> fileCredentials(const std::filesystem::path & path
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(content);
-    } catch (nlohmann::json::exception & e) {
-        throw GcpAuthError("failed to parse GCP credentials '%s': %s", path.string(), e.what());
+    } catch (nlohmann::json::exception &) {
+        /* nlohmann's e.what() quotes an excerpt of the input, so we don't log it to avoid leaking credentials. */
+        throw GcpAuthError("GCP credentials '%s' are not valid JSON", path.string());
     }
     auto type = j.value("type", std::string{});
     if (type == "service_account")

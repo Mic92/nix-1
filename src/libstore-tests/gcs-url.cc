@@ -89,7 +89,9 @@ INSTANTIATE_TEST_SUITE_P(
             "gs://bucket/key?endpoint=attacker.example", "not accepted in a gs:// URL", "endpoint_in_url_rejected"},
         InvalidGCSURLTestCase{"gs://bucket/key?scheme=http", "not accepted in a gs:// URL", "scheme_in_url_rejected"},
         InvalidGCSURLTestCase{
-            "gs://bucket/key?user-project=p%0d%0aX-Evil:1", "invalid 'user-project' value", "user_project_crlf"}),
+            "gs://bucket/key?user-project=p%0d%0aX-Evil:1", "invalid 'user-project' value", "user_project_crlf"},
+        InvalidGCSURLTestCase{
+            "gs://bucket/../other-bucket/key", "URI key has an invalid path segment", "dotdot_escapes_bucket"}),
     [](const ::testing::TestParamInfo<InvalidGCSURLTestCase> & info) { return info.param.description; });
 
 TEST(ParsedGCSURL, toHttpsUrl)
