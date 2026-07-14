@@ -20,6 +20,7 @@
 #  include <openssl/pem.h>
 
 #  include <chrono>
+#  include <sstream>
 
 namespace nix {
 
@@ -27,8 +28,9 @@ GcpCredentialProvider::~GcpCredentialProvider() {}
 
 using namespace std::chrono_literals;
 
-/* Refresh tokens this long before their nominal expiry so a request started
-   just before expiry doesn't race with revocation on the server side. */
+/* Refresh tokens this long before their nominal expiry.
+ * A request started just before expiry doesn't race with revocation on the server side.
+ */
 static constexpr auto kExpirySlack = 5min;
 
 static constexpr std::string_view kOauthScope = "https://www.googleapis.com/auth/devstorage.read_write";
@@ -134,9 +136,11 @@ std::optional<std::filesystem::path> findAdcFile()
     if (auto p = getEnv("GOOGLE_APPLICATION_CREDENTIALS"))
         return std::filesystem::path{*p};
 
-    /* gcloud's well-known location. `$CLOUDSDK_CONFIG` overrides the gcloud
-       config dir as a whole; otherwise it is ~/.config/gcloud on Unix and
-       %APPDATA%\gcloud on Windows (gcloud is not XDG-aware). */
+    /* gcloud's well-known location.
+     * `$CLOUDSDK_CONFIG` overrides the gcloud config dir as a whole
+     * Otherwise we use ~/.config/gcloud on Unix and %APPDATA%\gcloud on Windows
+     * (gcloud is not XDG-aware).
+     */
     auto gcloudDir = [&]() -> std::filesystem::path {
         if (auto d = getEnv("CLOUDSDK_CONFIG"))
             return *d;
@@ -193,15 +197,16 @@ FileTransferResult httpPostForm(std::string_view url, std::string body)
     StringSource src{body};
     req.data = {src};
     req.mimeType = "application/x-www-form-urlencoded";
-    /* Token endpoints are stateless; let the normal retry policy apply. */
+    /* Token endpoints are stateless. Let the normal retry policy apply. */
     return getFileTransfer()->upload(req);
 }
 
 /**
- * GCE/GKE metadata server. Off-GCP, `metadata.google.internal` does not
- * resolve and the request fails fast at DNS; we therefore don't add an extra
- * resolvability probe. Users can also point at a local stub via
- * `$GCE_METADATA_HOST` (honoured by all Google SDKs).
+ * GCE/GKE metadata server
+ * Outside of GCP `metadata.google.internal` does not
+ * resolve and the request fails fast at DNS level.
+ * We therefore don't add an extra resolvability probe.
+ * Users can also point at a local stub via `$GCE_METADATA_HOST` (honoured by all Google SDKs).
  */
 std::optional<GcpCredentials> metadataServerCredentials()
 {
@@ -216,7 +221,6 @@ std::optional<GcpCredentials> metadataServerCredentials()
     }
 }
 
-/** Fetch a non-empty string field, or throw a credential-type-specific error. */
 std::string requireField(const nlohmann::json & j, std::string_view credType, const char * key)
 {
     auto v = j.value(key, std::string{});
@@ -225,7 +229,7 @@ std::string requireField(const nlohmann::json & j, std::string_view credType, co
     return v;
 }
 
-/** `"type":"authorized_user"` — refresh-token flow used by `gcloud auth application-default login`. */
+/** `"type":"authorized_user"` is a refresh-token flow used by `gcloud auth application-default login`. */
 GcpCredentials authorizedUserCredentials(const nlohmann::json & j)
 {
     auto require = [&](const char * k) { return requireField(j, "authorized_user", k); };
@@ -239,7 +243,7 @@ GcpCredentials authorizedUserCredentials(const nlohmann::json & j)
     return parseTokenResponse(httpPostForm(tokenUri, std::move(body)).data);
 }
 
-/** `"type":"service_account"` — self-signed JWT exchanged for an access token. */
+/** `"type":"service_account"` is a self-signed JWT exchanged for an access token. */
 GcpCredentials serviceAccountCredentials(const nlohmann::json & j)
 {
     auto require = [&](const char * k) { return requireField(j, "service_account", k); };
@@ -280,12 +284,13 @@ std::string retrieveSubjectToken(const nlohmann::json & source)
             headers.emplace_back(k, v.get<std::string>());
         return extractSubjectToken(httpGet(url, std::move(headers), /*attempts=*/std::nullopt).data, format);
     }
-    /* `aws` and `executable` sources are not implemented here. The `aws` source
-       needs SigV4 request signing and lives behind NIX_WITH_AWS_AUTH. */
+    /* `aws` and `executable` sources are not implemented here.
+     * The `aws` source needs SigV4 request signing and lives behind NIX_WITH_AWS_AUTH.
+     */
     throw GcpAuthError("external_account credential_source is unsupported (only 'file' and 'url' are implemented)");
 }
 
-/** RFC 8693 token exchange against the STS endpoint, yielding a federated access token. */
+/** RFC 8693 token exchange against the STS endpoint. It yields a federated access token. */
 GcpCredentials stsExchange(
     const std::string & tokenUrl,
     const std::string & subjectToken,
@@ -304,11 +309,7 @@ GcpCredentials stsExchange(
     return parseTokenResponse(httpPostForm(tokenUrl, std::move(body)).data);
 }
 
-/**
- * Exchange a federated token for a service-account token via
- * `generateAccessToken`. The impersonated token defaults to a one-hour
- * lifetime; we apply that conservatively rather than parsing `expireTime`.
- */
+/** Exchange a federated token for a service-account token via `generateAccessToken`. */
 GcpCredentials impersonate(const std::string & url, const std::string & federatedToken)
 {
     auto payload = nlohmann::json{{"scope", nlohmann::json::array({std::string{kOauthScope}})}}.dump();
@@ -329,13 +330,21 @@ GcpCredentials impersonate(const std::string & url, const std::string & federate
     auto token = j.value("accessToken", std::string{});
     if (token.empty())
         throw GcpAuthError("impersonation response missing 'accessToken': %s", res.data);
+
+    /* `expireTime` is an RFC3339 UTC timestamp. The documented default is one-hour. */
+    std::chrono::seconds lifetime = 1h;
+    std::istringstream ss(j.value("expireTime", std::string{}));
+    std::chrono::sys_seconds expireTime;
+    if (ss >> std::chrono::parse("%FT%TZ", expireTime))
+        lifetime = std::chrono::duration_cast<std::chrono::seconds>(expireTime - std::chrono::system_clock::now());
+
     return GcpCredentials{
         .accessToken = std::move(token),
-        .expiresAt = std::chrono::steady_clock::now() + std::chrono::hours(1) - kExpirySlack,
+        .expiresAt = std::chrono::steady_clock::now() + lifetime - kExpirySlack,
     };
 }
 
-/** `"type":"external_account"` — workload identity federation (RFC 8693). */
+/** `"type":"external_account"` is a workload identity federation (RFC 8693). */
 GcpCredentials externalAccountCredentials(const nlohmann::json & j)
 {
     auto require = [&](const char * k) { return requireField(j, "external_account", k); };
@@ -365,9 +374,9 @@ std::optional<GcpCredentials> fileCredentials(const std::filesystem::path & path
     try {
         content = readFile(path);
     } catch (SysError & e) {
-        /* e.g. GOOGLE_APPLICATION_CREDENTIALS points at a missing file. Rewrap
-           so the caller's GcpAuthError contract holds and the error is
-           GCP-contextualised rather than a bare "No such file". */
+        /* e.g. GOOGLE_APPLICATION_CREDENTIALS points at a missing file.
+         * Rewrap so the caller's GcpAuthError to add GCP-context rather a bare "No such file".
+         */
         throw GcpAuthError("failed to read GCP credentials '%s': %s", path.string(), e.what());
     }
     nlohmann::json j;
@@ -386,9 +395,10 @@ std::optional<GcpCredentials> fileCredentials(const std::filesystem::path & path
     throw GcpAuthError("GCP credentials '%s' have unsupported type '%s'", path.string(), type);
 }
 
-/* How long a negative result (no credentials available) is cached before the
-   ADC chain, including the metadata-server probe, is retried. Without this a
-   public-bucket copy of N paths re-probes metadata.google.internal N times. */
+/* How long a negative result (no credentials available) is cached
+ * before the ADC chain (including the metadata-server probe) is retried.
+ * Without this a public-bucket copy of N paths re-probes metadata.google.internal N times.
+ */
 static constexpr auto negativeCacheTtl = std::chrono::seconds(60);
 
 class GcpCredentialProviderImpl final : public GcpCredentialProvider
@@ -423,16 +433,16 @@ public:
             if (*cached && (*cached)->validUntil > now)
                 return (*cached)->creds;
         }
-        /* Drop the lock across the (potentially slow) network call so
-           concurrent callers don't serialise on it. Last writer wins, which is
-           fine: every successful resolve() yields an equivalent token. */
+        /* Drop the lock across the (potentially slow) network call so concurrent callers don't serialise on it.
+         * Last writer wins, which is fine: every successful resolve() yields an equivalent token.
+         */
         std::optional<GcpCredentials> fresh;
         try {
             fresh = resolve();
         } catch (GcpAuthError & e) {
-            /* A broken/unsupported ADC file should surface to the user (so
-               they don't just see a bare 403), but not once per request; treat
-               it as a negative result so it is cached like "no credentials". */
+            /* A broken/unsupported ADC file should surface to the user (so they don't just see a bare 403),
+             * but not once per request. Instead treat it as a negative result so it is cached like "no credentials".
+             */
             warn("GCP authentication failed, proceeding without credentials: %s", e.message());
         }
         auto validUntil = fresh ? fresh->expiresAt : now + negativeCacheTtl;

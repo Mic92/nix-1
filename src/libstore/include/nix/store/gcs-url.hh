@@ -12,17 +12,10 @@ namespace nix {
 /**
  * Parsed Google Cloud Storage `gs://` URL.
  *
- * GCS is accessed via its XML API at `https://storage.googleapis.com`, which
- * is intentionally S3-compatible for basic object operations. Unlike S3, GCS
- * has no region in the URL (buckets are globally addressable) and no profile
- * concept (authentication uses OAuth2 bearer tokens, see gcp-creds.hh). We
- * always use path-style addressing (`/bucket/key`), which works for all bucket
- * names including those containing dots.
- *
- * There is deliberately no `endpoint`/`scheme` in the URL: bearer tokens are
+ * We deliberately support no `endpoint`/`scheme` in the URL: bearer tokens are
  * host-independent, so a URL-supplied endpoint would let e.g. `fetchurl`
- * exfiltrate the caller's token. A custom endpoint is a store setting only
- * (see `GCSBinaryCacheStoreConfig`).
+ * exfiltrate the caller's token.
+ * A custom endpoint is a store setting only (see `GCSBinaryCacheStoreConfig`).
  */
 struct ParsedGCSURL
 {
@@ -47,9 +40,9 @@ struct ParsedGCSURL
     using Endpoint = std::variant<std::monostate, ParsedURL, ParsedURL::Authority>;
 
     /**
-     * Convert to an HTTP(S) URL against the GCS XML API. The default targets
-     * `https://storage.googleapis.com`; store code passes a custom endpoint
-     * from operator configuration.
+     * Convert to an HTTP(S) URL against the GCS XML API.
+     * The default targets `https://storage.googleapis.com`.
+     * Store code passes a custom endpoint from operator configuration.
      */
     ParsedURL toHttpsUrl(std::string_view scheme = "https", const Endpoint & endpoint = std::monostate{}) const;
 

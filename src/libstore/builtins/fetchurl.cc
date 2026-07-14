@@ -56,8 +56,10 @@ static void builtinFetchurl(const BuiltinBuilderContext & ctx)
 
 #if NIX_WITH_GCS_AUTH
             if (request.uri.scheme() == "gs") {
-                /* Trust the parent's resolution; never run the ADC chain in the
-                   forked child. Empty token => anonymous (public bucket). */
+                /* Trust the parent's resolution.
+                 * never run the ADC chain in the forked child.
+                 * Empty token => anonymous (public bucket).
+                 */
                 request.gcpCredentialsPreResolved = true;
                 request.preResolvedGcpAccessToken = ctx.gcpAccessToken;
                 if (ctx.gcpAccessToken)

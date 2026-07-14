@@ -1359,7 +1359,7 @@ void FileTransferRequest::setupForGCS()
         return;
     }
 
-    /* Parent already resolved (to nothing); don't consult the provider. */
+    /* Parent already resolved (to nothing). Don't consult the provider. */
     if (gcpCredentialsPreResolved)
         return;
 

@@ -826,8 +826,9 @@ TEST(parseURL, gitlabNamespacedProjectUrls)
 
 TEST(parseUrlOrAuthority, bareHostPortIsAuthority)
 {
-    /* Without "://" the string is an authority, not a URL whose scheme is the
-       host. This is the regression guard for s3://?endpoint=host:port. */
+    /* This is the regression guard for s3://?endpoint=host:port
+     * Without "://" we parse the string as an authority instead of a URL whose scheme is the host.
+     */
     auto r = parseUrlOrAuthority("localhost:4443");
     ASSERT_TRUE(std::holds_alternative<Authority>(r));
     EXPECT_EQ(std::get<Authority>(r), (Authority{.host = "localhost", .port = 4443}));

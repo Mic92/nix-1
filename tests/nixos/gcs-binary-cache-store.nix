@@ -8,8 +8,8 @@ let
   token = "test-access-token";
   port = 4443;
 
-  # authorized_user ADC file pointing at the mock's /token endpoint, so the
-  # full refresh-token flow runs without needing RS256 signing.
+  # authorized_user ADC file pointing at the mock's /token endpoint.
+  # So we can do the full refresh-token flow runs without needing RS256 signing.
   adcFile = pkgs.writeText "adc.json" (
     builtins.toJSON {
       type = "authorized_user";
@@ -20,9 +20,9 @@ let
     }
   );
 
-  # external_account (workload identity federation): a file-sourced subject
-  # token exchanged at the mock's STS endpoint. The second variant additionally
-  # impersonates a service account.
+  # external_account (workload identity federation):
+  # This mock's STS endpoint.
+  # The second variant additionally impersonates a service account.
   subjectTokenFile = pkgs.writeText "subject-token" "fake-oidc-subject-token";
   externalAccount = {
     type = "external_account";
@@ -65,9 +65,6 @@ in
     ''
       PKG_A = "${pkgA}"
       ENV = "GOOGLE_APPLICATION_CREDENTIALS=${adcFile}"
-      # Bare host:port (not a full URL) plus scheme=http: regression guard for
-      # the endpoint-parsing fix. The mock speaks http, so scheme must override
-      # the https default.
       ENDPOINT = "endpoint=localhost:${toString port}&scheme=http"
 
       def store_url(bucket, **extra):
@@ -113,7 +110,8 @@ in
 
       # === multipart upload through S3CompatBinaryCacheStore ===
       large = machine.succeed(
-          "nix-store --add $(dd if=/dev/urandom of=/tmp/large bs=1M count=10 2>/dev/null && echo /tmp/large)"
+          "dd if=/dev/urandom of=/tmp/large bs=1M count=10 2>/dev/null && "
+          "nix-store --add /tmp/large"
       ).strip()
       mp_url = store_url(
           "private-cache",
@@ -127,9 +125,8 @@ in
       machine.succeed(f"nix path-info {large}")
 
       # === builtin:fetchurl gs:// with a URL-supplied endpoint ===
-      # A gs:// URL cannot carry an endpoint (bearer tokens are
-      # host-independent, so a URL-supplied one would let a derivation
-      # exfiltrate the daemon's token). ParsedGCSURL::parse() refuses it.
+      # A gs:// URL cannot carry an endpoint. Bearer tokens are host-independent
+      # and a URL-supplied one would let a derivation exfiltrate the daemon's token.
       info_url = f"gs://private-cache/nix-cache-info?{ENDPOINT}"
       out = machine.fail(
           f"{ENV} nix build --debug --impure --no-link --expr '"

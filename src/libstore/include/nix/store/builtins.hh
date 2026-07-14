@@ -33,8 +33,8 @@ struct BuiltinBuilderContext
 #if NIX_WITH_GCS_AUTH
     /**
      * Pre-resolved GCP OAuth2 bearer token for gs:// URLs in builtin:fetchurl.
-     * The sandboxed child has no access to the ADC file or metadata server, so
-     * the parent resolves the token before forking.
+     * The sandboxed child has no access to the ADC file or metadata server.
+     * The parent resolves the token before forking.
      */
     std::optional<std::string> gcpAccessToken;
 #endif

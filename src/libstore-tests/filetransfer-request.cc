@@ -30,7 +30,7 @@ struct FixedTokenProvider : GcpCredentialProvider
 #endif
 
 /**
- * Fixture that neutralises the real GCP credential chain so setupForGCS()
+ * Fixture that neutralises the real GCP credential chain to make setupForGCS()
  * tests stay hermetic and never touch the network or host ADC files.
  */
 class FileTransferRequestGCS : public ::testing::Test
@@ -63,8 +63,9 @@ TEST_F(FileTransferRequestGCS, rewritesUrlAndUserProject)
 TEST_F(FileTransferRequestGCS, preResolvedTokenWins)
 {
 #if NIX_WITH_GCS_AUTH
-    /* Ensure the provider would have supplied something, so we know the
-       pre-resolved token actually short-circuits it. */
+    /* Ensure the provider would have supplied something.
+     * We we know the pre-resolved token actually short-circuits it.
+     */
     stub->result = GcpCredentials{.accessToken = "provider-token", .expiresAt = {}};
 #endif
     FileTransferRequest req(VerbatimURL{std::string{"gs://b/k"}});

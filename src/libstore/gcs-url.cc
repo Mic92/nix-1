@@ -14,9 +14,8 @@ try {
     if (parsed.scheme != "gs"sv)
         throw BadURL("URI scheme '%s' is not 'gs'", parsed.scheme);
 
-    /* Like S3, the bucket name is the URI authority. Only reject the cases
-       that would make the resulting HTTPS URL malformed; GCS itself enforces
-       the full naming rules on the server side. */
+    /* Like S3, the bucket name is the URI authority.
+     * Only reject the cases that would make the resulting HTTPS URL malformed. */
     if (!parsed.authority || parsed.authority->host.empty()
         || parsed.authority->hostType != ParsedURL::Authority::HostType::Name)
         throw BadURL("URI has a missing or invalid bucket name");
@@ -28,8 +27,10 @@ try {
         return it->second;
     };
 
-    /* See the struct docstring: refusing here means a `gs://` URL cannot name
-       a non-Google host, so the bearer token can never be sent elsewhere. */
+    /* See the struct docstring:
+     * Refusing here means a `gs://` URL cannot name a non-Google host,
+     * so the bearer token can never be leaked elsewhere.
+     */
     if (getOptionalParam("endpoint") || getOptionalParam("scheme"))
         throw BadURL("'endpoint' and 'scheme' are not accepted in a gs:// URL; configure them on the store instead");
 
@@ -41,8 +42,9 @@ try {
     return ParsedGCSURL{
         .bucket = parsed.authority->host,
         .key = std::move(path),
-        /* Goes verbatim into the `x-goog-user-project` header; restrict to the
-           GCP project-id charset so it cannot smuggle CR/LF from a URL. */
+        /* Goes verbatim into the `x-goog-user-project` header.
+         * Restrict to the GCP project-id charset so it cannot smuggle CR/LF from a URL.
+         */
         .userProject = [&]() -> std::optional<std::string> {
             auto v = getOptionalParam("user-project");
             if (v && v->find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") != std::string::npos)
@@ -58,9 +60,9 @@ try {
 
 ParsedURL ParsedGCSURL::toHttpsUrl(std::string_view scheme, const Endpoint & endpoint) const
 {
-    /* Always path-style: GCS also supports virtual-hosted-style
-       (`bucket.storage.googleapis.com`) but path-style works for all bucket
-       names including dotted ones, and emulators typically only support it. */
+    /* We always use path-style as it is supported for all bucket names including dotted ones and emulators.
+     * GCS also supports virtual-hosted-style (`bucket.storage.googleapis.com`).
+     */
     struct Resolved
     {
         std::string scheme;
@@ -81,8 +83,8 @@ ParsedURL ParsedGCSURL::toHttpsUrl(std::string_view scheme, const Endpoint & end
     resolved.path.push_back(bucket);
     resolved.path.insert(resolved.path.end(), key.begin(), key.end());
 
-    /* GCS' XML API accepts the object generation as a query parameter on
-       GET/HEAD; pass it through so callers can pin a specific version. */
+    /* GCS' XML API accepts the object generation as a query parameter on GET/HEAD.
+       We allow it to pass it through so callers can pin a specific version. */
     StringMap query;
     if (generation)
         query["generation"] = *generation;

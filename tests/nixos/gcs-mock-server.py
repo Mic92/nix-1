@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """Minimal GCS XML API mock for the gcs-binary-cache-store NixOS test.
 
-We can't use fake-gcs-server because it doesn't implement the S3-compatible
-XML multipart-upload endpoints (?uploads / ?partNumber / ?uploadId), which is
-exactly the surface S3CompatBinaryCacheStore exercises. This mock implements only
-what that store needs and doubles as the OAuth2 token endpoint so the
+This mock implements only, what that store needs and doubles as the OAuth2 token endpoint so the
 authorized_user ADC flow can be tested end-to-end without faking signatures.
 """
 
@@ -36,8 +33,8 @@ def make_handler(args):
             if bucket in args.public_buckets:
                 return True
             got = self.headers.get("Authorization", "")
-            # The federated token is accepted directly (WIF without impersonation);
-            # the SA token is what impersonation and the other flows yield.
+            # The federated token is accepted directly (WIF without impersonation).
+            # The SA token is yielded by impersonation.
             return got in (f"Bearer {args.token}", f"Bearer {args.federated_token}")
 
         def _send(self, code: int, body: bytes = b"", headers: dict | None = None):
@@ -57,7 +54,7 @@ def make_handler(args):
             up = self.headers.get("x-goog-user-project", "-")
             print(f"[gcs-mock] {fmt % a} user-project={up}", file=sys.stderr, flush=True)
 
-        # ------- OAuth2 token endpoint (authorized_user refresh flow) -------
+        # OAuth2 token endpoint (authorized_user refresh flow)
         def _maybe_token_endpoint(self) -> bool:
             if urlsplit(self.path).path != "/token":
                 return False
@@ -75,12 +72,11 @@ def make_handler(args):
             )
             return True
 
-        # ------- Workload identity federation (external_account) -------
+        # Workload identity federation (external_account)
         def _maybe_wif_endpoint(self) -> bool:
             path = urlsplit(self.path).path
             if path == "/sts":
-                # RFC 8693 token exchange: require a subject token, hand back a
-                # federated access token.
+                # RFC 8693 token exchange: require a subject token, hand back a federated access token.
                 form = parse_qs(self._body().decode())
                 ok = (
                     "token-exchange" in form.get("grant_type", [""])[0]
@@ -101,7 +97,7 @@ def make_handler(args):
                 )
                 return True
             if path.endswith(":generateAccessToken"):
-                # Impersonation: the federated token buys a service-account token.
+                # Impersonation: the federated token returns a service-account token.
                 authed = self.headers.get("Authorization") == f"Bearer {args.federated_token}"
                 self._body()  # drain
                 if not authed:
@@ -116,7 +112,7 @@ def make_handler(args):
                 return True
             return False
 
-        # ------- GCS XML API -------
+        # GCS XML API
         def do_HEAD(self):
             bucket, key, _ = self._parse()
             if not self._authed(bucket):

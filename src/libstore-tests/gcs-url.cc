@@ -83,8 +83,8 @@ INSTANTIATE_TEST_SUITE_P(
         InvalidGCSURLTestCase{"gs://", "error: URI has a missing or invalid bucket name", "completely_empty"},
         InvalidGCSURLTestCase{"gs://bucket", "error: URI has a missing or invalid key", "missing_key"},
         InvalidGCSURLTestCase{"s3://bucket/key", "error: URI scheme 's3' is not 'gs'", "wrong_scheme"},
-        /* Bearer tokens are host-independent; refusing here is the security
-           boundary that keeps fetchurl from exfiltrating one. */
+        /* Bearer tokens are host-independent. Refusing here is the security boundary that keeps fetchurl from
+           exfiltrating one. */
         InvalidGCSURLTestCase{
             "gs://bucket/key?endpoint=attacker.example", "not accepted in a gs:// URL", "endpoint_in_url_rejected"},
         InvalidGCSURLTestCase{"gs://bucket/key?scheme=http", "not accepted in a gs:// URL", "scheme_in_url_rejected"},

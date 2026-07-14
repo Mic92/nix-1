@@ -325,19 +325,20 @@ struct FileTransferRequest
 #endif
 
     /**
-     * Pre-resolved GCP OAuth2 bearer token for `gs://` requests. When set,
-     * `setupForGCS()` uses it verbatim instead of consulting the credential
-     * provider; used to forward credentials into the sandboxed
-     * `builtin:fetchurl` child.
+     * Pre-resolved GCP OAuth2 bearer token for `gs://` requests.
+     * When set, `setupForGCS()` uses it verbatim instead of consulting the credential provider.
+     * Used to forward credentials into the sandboxed `builtin:fetchurl` child.
      */
     std::optional<std::string> preResolvedGcpAccessToken;
 
     /**
-     * The parent already resolved GCP credentials (possibly to "none"). When
-     * set, `setupForGCS()` skips the provider and goes anonymous if there is
-     * no `preResolvedGcpAccessToken`. Required in the `builtin:fetchurl`
-     * sandbox child: the ADC chain there calls back into the global
-     * FileTransfer, whose worker thread did not survive the fork.
+     * The parent already resolved GCP credentials (possibly to "none").
+     * When set, `setupForGCS()` skips the provider and goes anonymous if there is
+     * no `preResolvedGcpAccessToken`.
+     *
+     * Required in the `builtin:fetchurl` sandbox child:
+     * The ADC chain there calls back into the global FileTransfer,
+     * whose worker thread did not survive the fork.
      */
     bool gcpCredentialsPreResolved = false;
 

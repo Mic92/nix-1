@@ -93,7 +93,9 @@ std::optional<std::filesystem::path> findAdcFile();
 /**
  * Extract a workload-identity subject token from a `credential_source` payload
  * `raw` per its optional `format` (`text` verbatim, or a field of a `json`
- * document). Throws GcpAuthError on a malformed format spec or payload.
+ * document).
+ *
+ * Throws GcpAuthError on a malformed format spec or payload.
  */
 std::string extractSubjectToken(const std::string & raw, const nlohmann::json & format);
 

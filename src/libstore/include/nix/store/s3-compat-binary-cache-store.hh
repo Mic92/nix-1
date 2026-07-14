@@ -8,9 +8,8 @@
 namespace nix {
 
 /**
- * Shared configuration for stores that speak the S3-compatible XML object
- * API (S3 itself and GCS), in particular the multipart-upload knobs that
- * both backends interpret identically.
+ * Shared configuration for stores that speak the S3-compatible XML object API (S3 itself and GCS).
+ * In particular the multipart-upload knobs that both backends interpret identically.
  */
 struct S3CompatBinaryCacheStoreConfig : HttpBinaryCacheStoreConfig
 {
@@ -74,9 +73,12 @@ protected:
 
 /**
  * Shared upload machinery for binary caches that speak the S3-compatible
- * XML object API. Handles single-part PUT, the four-call multipart-upload
- * lifecycle, Content-MD5 integrity checking, and the compression dispatch
- * around `upsertFile`.
+ * XML object API.
+ * In particular this:
+ *  - single-part PUT,
+ *  - the four-call multipart-upload lifecycle,
+ *  - Content-MD5 integrity checking
+ *  - and the compression dispatch around `upsertFile`.
  *
  * Subclasses provide the backend-specific request preparation
  * (`setupForS3()` / `setupForGCS()`) and any extra headers (storage class).
