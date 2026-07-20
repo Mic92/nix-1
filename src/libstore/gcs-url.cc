@@ -39,9 +39,6 @@ try {
 
     auto path = std::views::drop(parsed.path, 1) | std::ranges::to<std::vector<std::string>>();
 
-    /* `..` in the key would let curl's dot-segment removal escape the bucket
-     * path segment, so what an `allowed-uris` prefix check approved is not what
-     * gets requested. */
     for (auto & seg : path)
         if (seg.empty() || seg == "." || seg == "..")
             throw BadURL("URI key has an invalid path segment '%s'", seg);

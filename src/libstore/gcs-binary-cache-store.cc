@@ -41,8 +41,16 @@ protected:
             req.headers.emplace_back("x-goog-user-project", up);
 
 #if NIX_WITH_GCS_AUTH
-        if (auto creds = getGcpCredentialsProvider()->maybeGetCredentials())
-            req.headers.emplace_back("Authorization", "Bearer " + creds->accessToken);
+        auto provider = getGcpCredentialsProvider();
+        if (auto creds = provider->maybeGetCredentials())
+            req.bearerToken = creds->accessToken;
+        req.refreshBearerToken = [provider,
+                                  wft = std::weak_ptr(getFileTransfer().get_ptr())]() -> std::optional<std::string> {
+            if (auto ft = wft.lock())
+                if (auto creds = provider->tryRefreshCredentials(*ft))
+                    return creds->accessToken;
+            return std::nullopt;
+        };
 #endif
         return req;
     }

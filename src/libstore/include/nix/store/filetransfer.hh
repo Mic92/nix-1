@@ -342,6 +342,10 @@ struct FileTransferRequest
      */
     bool gcpCredentialsPreResolved = false;
 
+    std::optional<std::string> bearerToken;
+
+    std::function<std::optional<std::string>()> refreshBearerToken;
+
     FileTransferRequest(VerbatimURL uri)
         : uri(std::move(uri))
         , parentAct(getCurActivity())

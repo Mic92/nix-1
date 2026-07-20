@@ -30,6 +30,7 @@
 #include <cstring>
 #include <queue>
 #include <random>
+#include <future>
 #include <thread>
 #include <utility>
 #include <regex>
@@ -202,6 +203,10 @@ struct curlFileTransfer : public FileTransfer
         std::optional<std::future<std::optional<AwsCredentials>>> pendingAwsCredRefresh;
 #endif
 
+        bool bearerRefreshed:1 = false;
+
+        std::optional<std::future<std::optional<std::string>>> pendingBearerRefresh;
+
         /**
          * Server-provided minimum retry delay, parsed from the `Retry-After`
          * response header. Reset on each new HTTP status line, and consumed
@@ -254,6 +259,8 @@ struct curlFileTransfer : public FileTransfer
             if (request.awsSessionToken)
                 appendHeaders("x-amz-security-token: " + *request.awsSessionToken);
 #endif
+            if (request.bearerToken)
+                appendHeaders("Authorization: Bearer " + *request.bearerToken);
         }
 
         TransferItem(
@@ -288,7 +295,6 @@ struct curlFileTransfer : public FileTransfer
             })
         {
             result.urls.push_back(request.uri.to_string());
-            buildRequestHeaders();
         }
 
         ~TransferItem()
@@ -401,6 +407,7 @@ struct curlFileTransfer : public FileTransfer
                     // loop-guard so a future expiry can refresh again.
                     awsCredsRefreshed = false;
 #endif
+                    bearerRefreshed = false;
                 }
                 hasContentEncoding = false;
                 retryAfterMs = std::nullopt;
@@ -607,7 +614,6 @@ struct curlFileTransfer : public FileTransfer
                         .password = std::move(creds->secretAccessKey),
                     };
                     request.awsSessionToken = std::move(creds->sessionToken);
-                    buildRequestHeaders();
                     debug("applied refreshed AWS credentials for retry attempt %d", attempt);
                 } else {
                     debug("AWS credential refresh returned no credentials; retrying with previous ones");
@@ -616,6 +622,15 @@ struct curlFileTransfer : public FileTransfer
                 debug("AWS credential refresh still pending; retrying with previous credentials");
             }
 #endif
+
+            if (pendingBearerRefresh
+                && pendingBearerRefresh->wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+                if (auto t = pendingBearerRefresh->get())
+                    request.bearerToken = std::move(t);
+                pendingBearerRefresh.reset();
+                bearerRefreshed = true;
+            }
+            buildRequestHeaders();
 
             if (verbosity >= lvlVomit) {
                 curl_easy_setopt(req, CURLOPT_VERBOSE, 1);
@@ -821,7 +836,9 @@ struct curlFileTransfer : public FileTransfer
 #else
                     err = Forbidden;
 #endif
-                } else if (httpStatus == HttpStatus::Unauthorized || httpStatus == HttpStatus::ProxyAuthRequired) {
+                } else if (httpStatus == HttpStatus::Unauthorized) {
+                    err = (request.refreshBearerToken && !bearerRefreshed) ? Transient : Forbidden;
+                } else if (httpStatus == HttpStatus::ProxyAuthRequired) {
                     err = Forbidden;
                 } else if (
                     httpStatus >= 400 && httpStatus < 500 && httpStatus != HttpStatus::RequestTimeout
@@ -942,6 +959,8 @@ struct curlFileTransfer : public FileTransfer
                 if (httpStatus == HttpStatus::Forbidden && request.awsS3Url && exc.error == Transient)
                     exc.error = Forbidden;
 #endif
+                if (httpStatus == HttpStatus::Unauthorized && exc.error == Transient)
+                    exc.error = Forbidden;
                 fail(std::move(exc));
                 return;
             }
@@ -989,6 +1008,25 @@ struct curlFileTransfer : public FileTransfer
                 }
             }
 #endif
+
+            if (httpStatus == HttpStatus::Unauthorized && request.refreshBearerToken && !bearerRefreshed
+                && !pendingBearerRefresh) {
+                try {
+                    auto promise = std::make_shared<std::promise<std::optional<std::string>>>();
+                    std::thread([refresh = request.refreshBearerToken, promise]() noexcept {
+                        try {
+                            promise->set_value(refresh());
+                        } catch (...) {
+                            try {
+                                promise->set_value(std::nullopt);
+                            } catch (...) {
+                            }
+                        }
+                    }).detach();
+                    pendingBearerRefresh = promise->get_future();
+                } catch (const std::system_error &) {
+                }
+            }
 
             auto delay = computeRetryDelayMs(
                 {
@@ -1355,7 +1393,7 @@ void FileTransferRequest::setupForGCS()
         headers.emplace_back("x-goog-user-project", *parsed.userProject);
 
     if (preResolvedGcpAccessToken) {
-        headers.emplace_back("Authorization", "Bearer " + *preResolvedGcpAccessToken);
+        bearerToken = *preResolvedGcpAccessToken;
         return;
     }
 
@@ -1364,8 +1402,15 @@ void FileTransferRequest::setupForGCS()
         return;
 
 #if NIX_WITH_GCS_AUTH
-    if (auto creds = getGcpCredentialsProvider()->maybeGetCredentials())
-        headers.emplace_back("Authorization", "Bearer " + creds->accessToken);
+    auto provider = getGcpCredentialsProvider();
+    if (auto creds = provider->maybeGetCredentials())
+        bearerToken = creds->accessToken;
+    refreshBearerToken = [provider, wft = std::weak_ptr(getFileTransfer().get_ptr())]() -> std::optional<std::string> {
+        if (auto ft = wft.lock())
+            if (auto creds = provider->tryRefreshCredentials(*ft))
+                return creds->accessToken;
+        return std::nullopt;
+    };
 #else
     debug("GCS request without authentication (built without GCS auth support)");
 #endif

@@ -17,6 +17,8 @@
 
 namespace nix {
 
+struct FileTransfer;
+
 /**
  * OAuth2 access token for Google Cloud APIs.
  *
@@ -43,6 +45,8 @@ public:
      * token endpoint rejection).
      */
     virtual std::optional<GcpCredentials> maybeGetCredentials() = 0;
+
+    virtual std::optional<GcpCredentials> tryRefreshCredentials(FileTransfer & ft) noexcept = 0;
 
     virtual ~GcpCredentialProvider();
 };

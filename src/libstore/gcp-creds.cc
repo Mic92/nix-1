@@ -19,6 +19,7 @@
 #  include <openssl/evp.h>
 #  include <openssl/pem.h>
 
+#  include <algorithm>
 #  include <chrono>
 #  include <cstdio>
 #  include <ctime>
@@ -32,7 +33,8 @@ using namespace std::chrono_literals;
 /* Refresh tokens this long before their nominal expiry.
  * A request started just before expiry doesn't race with revocation on the server side.
  */
-static constexpr auto kExpirySlack = 5min;
+static constexpr auto kExpirySlack = 225s;
+static constexpr auto kMinCacheLifetime = 30s;
 
 static constexpr std::string_view kOauthScope = "https://www.googleapis.com/auth/devstorage.read_write";
 static constexpr std::string_view kCloudPlatformScope = "https://www.googleapis.com/auth/cloud-platform";
@@ -128,9 +130,10 @@ GcpCredentials parseTokenResponse(const std::string & body)
         throw GcpAuthError("GCP token endpoint response missing 'access_token'");
     }
     auto expiresIn = std::chrono::seconds(j.value("expires_in", 3600));
+    auto now = std::chrono::steady_clock::now();
     return GcpCredentials{
         .accessToken = std::move(token),
-        .expiresAt = std::chrono::steady_clock::now() + expiresIn - kExpirySlack,
+        .expiresAt = std::max(now + expiresIn - kExpirySlack, now + kMinCacheLifetime),
     };
 }
 
@@ -185,15 +188,15 @@ namespace {
 
 using namespace gcp_detail;
 
-FileTransferResult httpGet(std::string_view url, Headers headers, std::optional<uint32_t> attempts)
+FileTransferResult httpGet(FileTransfer & ft, std::string_view url, Headers headers, std::optional<uint32_t> attempts)
 {
     FileTransferRequest req{VerbatimURL{url}};
     req.headers = std::move(headers);
     req.retryAttempts = attempts;
-    return getFileTransfer()->download(req);
+    return ft.download(req);
 }
 
-FileTransferResult httpPostForm(std::string_view url, std::string body)
+FileTransferResult httpPostForm(FileTransfer & ft, std::string_view url, std::string body)
 {
     FileTransferRequest req{VerbatimURL{url}};
     req.method = HttpMethod::Post;
@@ -201,7 +204,7 @@ FileTransferResult httpPostForm(std::string_view url, std::string body)
     req.data = {src};
     req.mimeType = "application/x-www-form-urlencoded";
     /* Token endpoints are stateless. Let the normal retry policy apply. */
-    return getFileTransfer()->upload(req);
+    return ft.upload(req);
 }
 
 /**
@@ -211,16 +214,23 @@ FileTransferResult httpPostForm(std::string_view url, std::string body)
  * We therefore don't add an extra resolvability probe.
  * Users can also point at a local stub via `$GCE_METADATA_HOST` (honoured by all Google SDKs).
  */
-std::optional<GcpCredentials> metadataServerCredentials()
+std::optional<GcpCredentials> metadataServerCredentials(FileTransfer & ft)
 {
     auto host = getEnv("GCE_METADATA_HOST").value_or(std::string{kMetadataHost});
     auto url = "http://" + host + std::string{kMetadataTokenPath};
+    Headers hdrs{{"Metadata-Flavor", "Google"}};
     try {
-        auto res = httpGet(url, {{"Metadata-Flavor", "Google"}}, /*attempts=*/1);
-        return parseTokenResponse(res.data);
+        return parseTokenResponse(httpGet(ft, url, hdrs, /*attempts=*/1).data);
     } catch (FileTransferError & e) {
-        debug("GCP metadata server not available: %s", e.what());
-        return std::nullopt;
+        if (!e.response || e.error != FileTransfer::Transient) {
+            debug("GCP metadata server not available: %s", e.what());
+            return std::nullopt;
+        }
+    }
+    try {
+        return parseTokenResponse(httpGet(ft, url, hdrs, /*attempts=*/std::nullopt).data);
+    } catch (FileTransferError & e) {
+        throw GcpAuthError("GCP metadata server error: %s", e.message());
     }
 }
 
@@ -233,7 +243,7 @@ std::string requireField(const nlohmann::json & j, std::string_view credType, co
 }
 
 /** `"type":"authorized_user"` is a refresh-token flow used by `gcloud auth application-default login`. */
-GcpCredentials authorizedUserCredentials(const nlohmann::json & j)
+GcpCredentials authorizedUserCredentials(FileTransfer & ft, const nlohmann::json & j)
 {
     auto require = [&](const char * k) { return requireField(j, "authorized_user", k); };
     auto body = encodeQuery({
@@ -243,11 +253,11 @@ GcpCredentials authorizedUserCredentials(const nlohmann::json & j)
         {"refresh_token", require("refresh_token")},
     });
     auto tokenUri = j.value("token_uri", std::string{kDefaultTokenUri});
-    return parseTokenResponse(httpPostForm(tokenUri, std::move(body)).data);
+    return parseTokenResponse(httpPostForm(ft, tokenUri, std::move(body)).data);
 }
 
 /** `"type":"service_account"` is a self-signed JWT exchanged for an access token. */
-GcpCredentials serviceAccountCredentials(const nlohmann::json & j)
+GcpCredentials serviceAccountCredentials(FileTransfer & ft, const nlohmann::json & j)
 {
     auto require = [&](const char * k) { return requireField(j, "service_account", k); };
     auto clientEmail = require("client_email");
@@ -266,11 +276,11 @@ GcpCredentials serviceAccountCredentials(const nlohmann::json & j)
         {"grant_type", "urn:ietf:params:oauth:grant-type:jwt-bearer"},
         {"assertion", assertion},
     });
-    return parseTokenResponse(httpPostForm(tokenUri, std::move(body)).data);
+    return parseTokenResponse(httpPostForm(ft, tokenUri, std::move(body)).data);
 }
 
 /** Retrieve the subject token named by an `external_account` `credential_source`. */
-std::string retrieveSubjectToken(const nlohmann::json & source)
+std::string retrieveSubjectToken(FileTransfer & ft, const nlohmann::json & source)
 {
     auto format = source.value("format", nlohmann::json{});
     if (auto file = source.value("file", std::string{}); !file.empty()) {
@@ -285,7 +295,7 @@ std::string retrieveSubjectToken(const nlohmann::json & source)
         auto hdrs = source.value("headers", nlohmann::json::object());
         for (auto & [k, v] : hdrs.items())
             headers.emplace_back(k, v.get<std::string>());
-        return extractSubjectToken(httpGet(url, std::move(headers), /*attempts=*/std::nullopt).data, format);
+        return extractSubjectToken(httpGet(ft, url, std::move(headers), /*attempts=*/std::nullopt).data, format);
     }
     /* `aws` and `executable` sources are not implemented here.
      * The `aws` source needs SigV4 request signing and lives behind NIX_WITH_AWS_AUTH.
@@ -295,6 +305,7 @@ std::string retrieveSubjectToken(const nlohmann::json & source)
 
 /** RFC 8693 token exchange against the STS endpoint. It yields a federated access token. */
 GcpCredentials stsExchange(
+    FileTransfer & ft,
     const std::string & tokenUrl,
     const std::string & subjectToken,
     const std::string & subjectTokenType,
@@ -309,11 +320,11 @@ GcpCredentials stsExchange(
         {"audience", audience},
         {"scope", std::string{scope}},
     });
-    return parseTokenResponse(httpPostForm(tokenUrl, std::move(body)).data);
+    return parseTokenResponse(httpPostForm(ft, tokenUrl, std::move(body)).data);
 }
 
 /** Exchange a federated token for a service-account token via `generateAccessToken`. */
-GcpCredentials impersonate(const std::string & url, const std::string & federatedToken)
+GcpCredentials impersonate(FileTransfer & ft, const std::string & url, const std::string & federatedToken)
 {
     auto payload = nlohmann::json{{"scope", nlohmann::json::array({std::string{kOauthScope}})}}.dump();
     FileTransferRequest req{VerbatimURL{url}};
@@ -322,7 +333,7 @@ GcpCredentials impersonate(const std::string & url, const std::string & federate
     req.data = {src};
     req.mimeType = "application/json";
     req.headers = {{"Authorization", "Bearer " + federatedToken}};
-    auto res = getFileTransfer()->upload(req);
+    auto res = ft.upload(req);
 
     nlohmann::json j;
     try {
@@ -356,14 +367,15 @@ GcpCredentials impersonate(const std::string & url, const std::string & federate
             std::chrono::system_clock::from_time_t(timegm(&tm)) - std::chrono::system_clock::now());
     }
 
+    auto now = std::chrono::steady_clock::now();
     return GcpCredentials{
         .accessToken = std::move(token),
-        .expiresAt = std::chrono::steady_clock::now() + lifetime - kExpirySlack,
+        .expiresAt = std::max(now + lifetime - kExpirySlack, now + kMinCacheLifetime),
     };
 }
 
 /** `"type":"external_account"` is a workload identity federation (RFC 8693). */
-GcpCredentials externalAccountCredentials(const nlohmann::json & j)
+GcpCredentials externalAccountCredentials(FileTransfer & ft, const nlohmann::json & j)
 {
     auto require = [&](const char * k) { return requireField(j, "external_account", k); };
     auto audience = require("audience");
@@ -372,21 +384,22 @@ GcpCredentials externalAccountCredentials(const nlohmann::json & j)
     if (!j.contains("credential_source"))
         throw GcpAuthError("external_account credentials missing 'credential_source'");
 
-    auto subjectToken = retrieveSubjectToken(j.at("credential_source"));
+    auto subjectToken = retrieveSubjectToken(ft, j.at("credential_source"));
 
     /* With impersonation the federated token only needs cloud-platform; the
        desired storage scope is applied at the impersonation step. */
     auto impersonationUrl = j.value("service_account_impersonation_url", std::string{});
     auto sts = stsExchange(
+        ft,
         tokenUrl,
         subjectToken,
         subjectTokenType,
         audience,
         impersonationUrl.empty() ? kOauthScope : kCloudPlatformScope);
-    return impersonationUrl.empty() ? sts : impersonate(impersonationUrl, sts.accessToken);
+    return impersonationUrl.empty() ? sts : impersonate(ft, impersonationUrl, sts.accessToken);
 }
 
-std::optional<GcpCredentials> fileCredentials(const std::filesystem::path & path)
+std::optional<GcpCredentials> fileCredentials(FileTransfer & ft, const std::filesystem::path & path)
 {
     std::string content;
     try {
@@ -406,11 +419,11 @@ std::optional<GcpCredentials> fileCredentials(const std::filesystem::path & path
     }
     auto type = j.value("type", std::string{});
     if (type == "service_account")
-        return serviceAccountCredentials(j);
+        return serviceAccountCredentials(ft, j);
     if (type == "authorized_user")
-        return authorizedUserCredentials(j);
+        return authorizedUserCredentials(ft, j);
     if (type == "external_account")
-        return externalAccountCredentials(j);
+        return externalAccountCredentials(ft, j);
     throw GcpAuthError("GCP credentials '%s' have unsupported type '%s'", path.string(), type);
 }
 
@@ -430,17 +443,28 @@ class GcpCredentialProviderImpl final : public GcpCredentialProvider
 
     Sync<std::optional<CacheEntry>> cached_;
 
-    std::optional<GcpCredentials> resolve()
+    std::optional<GcpCredentials> resolve(FileTransfer & ft)
     {
         if (auto path = findAdcFile()) {
             debug("using GCP credentials from '%s'", path->string());
             try {
-                return fileCredentials(*path);
+                return fileCredentials(ft, *path);
             } catch (FileTransferError & e) {
                 throw GcpAuthError("failed to obtain GCP access token: %s", e.message());
             }
         }
-        return metadataServerCredentials();
+        return metadataServerCredentials(ft);
+    }
+
+    std::optional<GcpCredentials> store(std::optional<GcpCredentials> fresh, std::chrono::steady_clock::time_point now)
+    {
+        auto validUntil = fresh ? fresh->expiresAt : now + negativeCacheTtl;
+        auto cached(cached_.lock());
+        if (fresh || !*cached || (*cached)->validUntil <= now)
+            *cached = CacheEntry{fresh, validUntil};
+        else
+            return (*cached)->creds;
+        return fresh;
     }
 
 public:
@@ -452,24 +476,30 @@ public:
             if (*cached && (*cached)->validUntil > now)
                 return (*cached)->creds;
         }
-        /* Drop the lock across the (potentially slow) network call so concurrent callers don't serialise on it.
-         * Last writer wins, which is fine: every successful resolve() yields an equivalent token.
-         */
+        /* Drop the lock across the (potentially slow) network call so concurrent callers don't serialise on it. */
         std::optional<GcpCredentials> fresh;
         try {
-            fresh = resolve();
+            fresh = resolve(*getFileTransfer());
         } catch (GcpAuthError & e) {
             /* A broken/unsupported ADC file should surface to the user (so they don't just see a bare 403),
              * but not once per request. Instead treat it as a negative result so it is cached like "no credentials".
              */
             warn("GCP authentication failed, proceeding without credentials: %s", e.message());
+        } catch (nlohmann::json::exception & e) {
+            warn("GCP authentication failed (malformed JSON field): %s", e.what());
         }
-        auto validUntil = fresh ? fresh->expiresAt : now + negativeCacheTtl;
-        {
-            auto cached(cached_.lock());
-            *cached = CacheEntry{fresh, validUntil};
+        return store(std::move(fresh), now);
+    }
+
+    std::optional<GcpCredentials> tryRefreshCredentials(FileTransfer & ft) noexcept override
+    {
+        auto now = std::chrono::steady_clock::now();
+        cached_.lock()->reset();
+        try {
+            return store(resolve(ft), now);
+        } catch (...) {
+            return store(std::nullopt, now);
         }
-        return fresh;
     }
 };
 

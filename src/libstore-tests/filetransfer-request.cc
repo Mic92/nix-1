@@ -25,6 +25,11 @@ struct FixedTokenProvider : GcpCredentialProvider
     {
         return result;
     }
+
+    std::optional<GcpCredentials> tryRefreshCredentials(FileTransfer &) noexcept override
+    {
+        return result;
+    }
 };
 } // anonymous namespace
 #endif
@@ -72,7 +77,8 @@ TEST_F(FileTransferRequestGCS, preResolvedTokenWins)
     req.preResolvedGcpAccessToken = "forwarded-token";
     req.setupForGCS();
 
-    EXPECT_EQ(findHeader(req.headers, "Authorization"), std::optional<std::string>{"Bearer forwarded-token"});
+    EXPECT_EQ(req.bearerToken, std::optional<std::string>{"forwarded-token"});
+    EXPECT_FALSE(req.refreshBearerToken);
 }
 
 #if NIX_WITH_GCS_AUTH
@@ -84,7 +90,11 @@ TEST_F(FileTransferRequestGCS, usesProviderToken)
     FileTransferRequest req(VerbatimURL{std::string{"gs://b/k"}});
     req.setupForGCS();
 
-    EXPECT_EQ(findHeader(req.headers, "Authorization"), std::optional<std::string>{"Bearer provider-token"});
+    EXPECT_EQ(req.bearerToken, std::optional<std::string>{"provider-token"});
+    ASSERT_TRUE(req.refreshBearerToken);
+
+    stub->result = GcpCredentials{.accessToken = "refreshed-token", .expiresAt = {}};
+    EXPECT_EQ(req.refreshBearerToken(), std::optional<std::string>{"refreshed-token"});
 }
 
 TEST_F(FileTransferRequestGCS, anonymousWhenNoCredentials)
@@ -94,7 +104,7 @@ TEST_F(FileTransferRequestGCS, anonymousWhenNoCredentials)
     FileTransferRequest req(VerbatimURL{std::string{"gs://b/k"}});
     req.setupForGCS();
 
-    EXPECT_FALSE(findHeader(req.headers, "Authorization").has_value());
+    EXPECT_FALSE(req.bearerToken.has_value());
 }
 
 #endif

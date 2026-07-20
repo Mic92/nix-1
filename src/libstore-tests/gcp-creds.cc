@@ -97,11 +97,18 @@ TEST(GcpCreds, parseTokenResponseHappyPath)
     auto after = std::chrono::steady_clock::now();
 
     EXPECT_EQ(creds.accessToken, "ya29.abc");
-    // expires_in=3600 minus 5-minute slack ⇒ ~55 minutes from now.
-    auto lower = before + std::chrono::minutes(54);
-    auto upper = after + std::chrono::minutes(56);
-    EXPECT_GT(creds.expiresAt, lower);
-    EXPECT_LT(creds.expiresAt, upper);
+    // expires_in=3600 minus 225s slack ⇒ ~56 minutes from now.
+    EXPECT_GT(creds.expiresAt, before + std::chrono::minutes(55));
+    EXPECT_LT(creds.expiresAt, after + std::chrono::minutes(58));
+}
+
+TEST(GcpCreds, parseTokenResponseClampsShortExpiry)
+{
+    auto before = std::chrono::steady_clock::now();
+    auto creds = parseTokenResponse(R"({"access_token":"t","expires_in":60})");
+    // 60s - 225s would be in the past; clamp to ≥30s.
+    EXPECT_GE(creds.expiresAt, before + std::chrono::seconds(30));
+    EXPECT_LT(creds.expiresAt, before + std::chrono::seconds(60));
 }
 
 TEST(GcpCreds, parseTokenResponseRejectsMissingToken)
