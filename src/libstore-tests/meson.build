@@ -43,6 +43,7 @@ sources = files(
   'derivation/modulo.cc',
   'derivation/resolution.cc',
   'derivation/write.cc',
+  'derived-path-resolve.cc',
   'derived-path.cc',
   'downstream-placeholder.cc',
   'dummy-store.cc',
