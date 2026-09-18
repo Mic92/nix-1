@@ -86,5 +86,9 @@ scope: {
         # Need to remove `--with-*` to use `--with-libraries=...`
         buildPhase = lib.replaceStrings [ "--without-python" ] [ "" ] old.buildPhase;
         installPhase = lib.replaceStrings [ "--without-python" ] [ "" ] old.installPhase;
+        # boost.url >= 1.90 regression, see patch description
+        patches =
+          (old.patches or [ ])
+          ++ lib.optional (lib.versionAtLeast old.version "1.90") ./patches/boost-url-zone-id-decoded-size.patch;
       });
 }
