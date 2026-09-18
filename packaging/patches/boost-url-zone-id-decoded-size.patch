@@ -1,0 +1,52 @@
+From fd92bf199fea367b0f0454b855f8caf245039642 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?J=C3=B6rg=20Thalheim?= <joerg@thalheim.io>
+Date: Sat, 19 Sep 2026 01:10:41 +0200
+Subject: [PATCH] url: fix decoded size of IPv6 host with zone-id
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Since 062fe00 host_rule sets dn == n for IP-literals, but a zone-id
+contains "%25", so host_address() returns two trailing NUL bytes.
+
+Signed-off-by: Jörg Thalheim <joerg@thalheim.io>
+---
+ include/boost/url/impl/authority_view.hpp       | 2 +-
+ include/boost/url/rfc/detail/impl/host_rule.hpp | 7 ++++++-
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/boost/url/impl/authority_view.hpp b/boost/url/impl/authority_view.hpp
+index 4857fef..56a16e9 100644
+--- a/boost/url/impl/authority_view.hpp
++++ b/boost/url/impl/authority_view.hpp
+@@ -204,7 +204,7 @@ encoded_host_address() const noexcept
+     case urls::host_type::ipvfuture:
+     {
+         BOOST_ASSERT(
+-            u_.decoded_[id_host] ==
++            u_.decoded_[id_host] <=
+                 s.size());
+         BOOST_ASSERT(s.size() >= 2);
+         BOOST_ASSERT(s.front() == '[');
+diff --git a/boost/url/rfc/detail/impl/host_rule.hpp b/boost/url/rfc/detail/impl/host_rule.hpp
+index ac9aabc..e10c275 100644
+--- a/boost/url/rfc/detail/impl/host_rule.hpp
++++ b/boost/url/rfc/detail/impl/host_rule.hpp
+@@ -62,8 +62,13 @@ parse(
+                 b.size());
+             t.host_type =
+                 urls::host_type::ipv6;
++            // zone-id is pct-encoded
++            std::size_t dn = 0;
++            for(auto p = it0; p != it; ++p, ++dn)
++                if(*p == '%')
++                    p += 2;
+             t.match = make_pct_string_view_unsafe(
+-                it0, it - it0, it - it0);
++                it0, it - it0, dn);
+             return t;
+         }
+ 
+-- 
+2.55.0
+
